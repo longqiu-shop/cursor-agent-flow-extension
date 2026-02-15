@@ -13,7 +13,16 @@ A VS Code extension for [Cursor](https://cursor.sh) that lets you schedule and a
 
 ## Installation
 
-### Option 1: Install from VSIX Package (Recommended)
+### Option 1: Install from Cursor Marketplace (Easiest)
+
+1. Open Cursor
+2. Go to Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`)
+3. Search for "Cursor Agent Scheduler"
+4. Click **Install**
+
+The extension will be available from [Open VSX](https://open-vsx.org/) once published.
+
+### Option 2: Install from VSIX Package
 
 1. Download the latest `.vsix` file from [Releases](https://github.com/jolocity/cursor-agent-scheduler/releases)
 2. Open Cursor
@@ -193,6 +202,12 @@ This will create `cursor-agent-scheduler-1.0.0.vsix` in the project root, which 
 ## License
 
 MIT
+
+## Publishing
+
+This extension is published to [Open VSX](https://open-vsx.org/), which Cursor uses as its extension marketplace.
+
+See [PUBLISH.md](PUBLISH.md) for instructions on how to publish updates.
 
 ## Contributing
 

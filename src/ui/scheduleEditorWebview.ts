@@ -3,8 +3,10 @@
  */
 
 import * as vscode from 'vscode';
-import { Schedule } from '../types';
+import { Schedule, TargetType } from '../types';
 import { CommandRegistry } from '../commands/commandRegistry';
+import { SkillRegistry } from '../commands/skillRegistry';
+import { AgentRegistry } from '../commands/agentRegistry';
 import { SchedulerService } from '../scheduler/schedulerService';
 import { StorageManager } from '../storage/storageManager';
 import { validateCronExpression, getCronDescription, getNextRunTimeFormatted } from '../utils/cronUtils';
@@ -18,6 +20,8 @@ interface WebviewMessage {
 export class ScheduleEditorWebview {
   private panel: vscode.WebviewPanel | undefined;
   private commandRegistry: CommandRegistry;
+  private skillRegistry: SkillRegistry;
+  private agentRegistry: AgentRegistry;
   private schedulerService: SchedulerService;
   private storageManager: StorageManager;
   private schedule: Schedule | undefined;
@@ -25,10 +29,14 @@ export class ScheduleEditorWebview {
 
   constructor(
     commandRegistry: CommandRegistry,
+    skillRegistry: SkillRegistry,
+    agentRegistry: AgentRegistry,
     schedulerService: SchedulerService,
     storageManager: StorageManager
   ) {
     this.commandRegistry = commandRegistry;
+    this.skillRegistry = skillRegistry;
+    this.agentRegistry = agentRegistry;
     this.schedulerService = schedulerService;
     this.storageManager = storageManager;
   }
@@ -102,7 +110,8 @@ export class ScheduleEditorWebview {
         this.sendInitialData();
         break;
       case 'getCommands':
-        this.sendCommands();
+      case 'getContextByType':
+        this.sendContextByType();
         break;
       case 'validateCron':
         if (message.data && typeof message.data === 'object' && 'cron' in message.data) {
@@ -134,35 +143,45 @@ export class ScheduleEditorWebview {
       type: 'initialData',
       data: {
         schedule: this.schedule,
-        commands: this.getCommandsData()
+        contextByType: this.getAllContextData()
       }
     });
   }
 
   /**
-   * Send commands list to webview
+   * Send context lists (commands, skills, agents) to webview
    */
-  private sendCommands(): void {
-    if (!this.panel) {
-      return;
-    }
-
+  private sendContextByType(): void {
+    if (!this.panel) return;
     this.panel.webview.postMessage({
-      type: 'commands',
-      data: this.getCommandsData()
+      type: 'contextByType',
+      data: this.getAllContextData()
     });
   }
 
   /**
-   * Get commands data for webview
+   * Get context items (commands, skills, or agents) for webview by target type
    */
-  private getCommandsData(): Array<{ filePath: string; commandId: string; description?: string }> {
-    const commands = this.commandRegistry.getAllCommands();
-    return commands.map(cmd => ({
+  private getContextData(targetType: TargetType): Array<{ filePath: string; commandId: string; description?: string }> {
+    const items =
+      targetType === 'command' ? this.commandRegistry.getAllCommands() :
+      targetType === 'skill' ? this.skillRegistry.getAll() :
+      targetType === 'agent' ? this.agentRegistry.getAll() : [];
+    return items.map(cmd => ({
       filePath: cmd.filePath,
       commandId: cmd.id,
       description: cmd.description
     }));
+  }
+
+  /** All context data keyed by target type for the webview */
+  private getAllContextData(): Record<TargetType, Array<{ filePath: string; commandId: string; description?: string }>> {
+    return {
+      prompt: [],
+      command: this.getContextData('command'),
+      skill: this.getContextData('skill'),
+      agent: this.getContextData('agent')
+    };
   }
 
   /**
@@ -215,8 +234,8 @@ export class ScheduleEditorWebview {
         throw new Error('Prompt template is required when target type is "prompt"');
       }
 
-      if (data.targetType === 'command' && !data.commandRef) {
-        throw new Error('Command reference is required when target type is "command"');
+      if (['command', 'skill', 'agent'].includes(data.targetType || '') && !data.commandRef) {
+        throw new Error('Context reference is required when target type is command, skill, or agent');
       }
 
       // Ensure id exists (for new schedules, use the one from this.schedule)
@@ -499,6 +518,8 @@ export class ScheduleEditorWebview {
             <select id="targetType" required>
                 <option value="prompt">Inline Prompt</option>
                 <option value="command">Cursor Command</option>
+                <option value="skill">Skill</option>
+                <option value="agent">Agent</option>
             </select>
         </div>
 
@@ -509,17 +530,17 @@ export class ScheduleEditorWebview {
             </div>
         </div>
 
-        <div id="commandSection" class="conditional" style="display: none;">
+        <div id="contextSection" class="conditional" style="display: none;">
             <div class="form-group">
-                <label for="commandFile">Command File</label>
+                <label for="commandFile">File</label>
                 <select id="commandFile">
-                    <option value="">Select a command file...</option>
+                    <option value="">Select a file...</option>
                 </select>
             </div>
             <div class="form-group">
-                <label for="commandId">Command ID</label>
+                <label for="commandId">ID</label>
                 <select id="commandId">
-                    <option value="">Select a command...</option>
+                    <option value="">Select...</option>
                 </select>
             </div>
             <div id="commandPreview" class="info"></div>
@@ -571,12 +592,12 @@ export class ScheduleEditorWebview {
 
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-        let commands = [];
+        let contextByType = { prompt: [], command: [], skill: [], agent: [] };
         let schedule = null;
 
         // Load initial data
         vscode.postMessage({ type: 'getInitialData' });
-        vscode.postMessage({ type: 'getCommands' });
+        vscode.postMessage({ type: 'getContextByType' });
 
         // Listen for messages
         window.addEventListener('message', event => {
@@ -584,13 +605,13 @@ export class ScheduleEditorWebview {
             switch (message.type) {
                 case 'initialData':
                     schedule = message.data.schedule;
-                    commands = message.data.commands;
+                    contextByType = message.data.contextByType || contextByType;
                     loadSchedule();
-                    loadCommands();
+                    loadContext();
                     break;
-                case 'commands':
-                    commands = message.data;
-                    loadCommands();
+                case 'contextByType':
+                    contextByType = message.data || contextByType;
+                    loadContext();
                     break;
                 case 'cronValidation':
                     updateCronValidation(message.data);
@@ -626,6 +647,7 @@ export class ScheduleEditorWebview {
             
             updateTargetType();
             updateOutputType();
+            loadContext();
             
             if (schedule.commandRef) {
                 document.getElementById('commandFile').value = schedule.commandRef.filePath;
@@ -637,10 +659,16 @@ export class ScheduleEditorWebview {
             setTimeout(initializeCronBuilder, 100);
         }
 
-        function loadCommands() {
+        function getCommandsForType() {
+            const targetType = document.getElementById('targetType').value;
+            return contextByType[targetType] || [];
+        }
+
+        function loadContext() {
             const commandFileSelect = document.getElementById('commandFile');
+            const commands = getCommandsForType();
             const files = [...new Set(commands.map(c => c.filePath))];
-            commandFileSelect.innerHTML = '<option value="">Select a command file...</option>';
+            commandFileSelect.innerHTML = '<option value="">Select a file...</option>';
             files.forEach(file => {
                 const option = document.createElement('option');
                 option.value = file;
@@ -648,16 +676,18 @@ export class ScheduleEditorWebview {
                 commandFileSelect.appendChild(option);
             });
             
-            if (schedule?.commandRef) {
+            if (schedule?.commandRef && document.getElementById('targetType').value === schedule.targetType) {
                 commandFileSelect.value = schedule.commandRef.filePath;
                 updateCommandIds();
+                document.getElementById('commandId').value = schedule.commandRef.commandId || '';
             }
         }
 
         function updateCommandIds() {
             const filePath = document.getElementById('commandFile').value;
             const commandIdSelect = document.getElementById('commandId');
-            commandIdSelect.innerHTML = '<option value="">Select a command...</option>';
+            const commands = getCommandsForType();
+            commandIdSelect.innerHTML = '<option value="">Select...</option>';
             
             if (filePath) {
                 const fileCommands = commands.filter(c => c.filePath === filePath);
@@ -673,7 +703,9 @@ export class ScheduleEditorWebview {
         function updateTargetType() {
             const targetType = document.getElementById('targetType').value;
             document.getElementById('promptSection').style.display = targetType === 'prompt' ? 'block' : 'none';
-            document.getElementById('commandSection').style.display = targetType === 'command' ? 'block' : 'none';
+            const showContext = ['command', 'skill', 'agent'].includes(targetType);
+            document.getElementById('contextSection').style.display = showContext ? 'block' : 'none';
+            if (showContext) loadContext();
         }
 
         function updateOutputType() {

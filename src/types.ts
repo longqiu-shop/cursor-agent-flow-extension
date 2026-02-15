@@ -2,7 +2,7 @@
  * TypeScript interfaces for Cursor Agent Scheduler
  */
 
-export type TargetType = 'prompt' | 'command';
+export type TargetType = 'prompt' | 'command' | 'skill' | 'agent';
 export type ExecutionMode = 'ide' | 'cloud';
 export type ScheduleType = 'cron' | 'interval';
 export type OutputType = 'markdown' | 'pr' | 'diff' | 'none';

@@ -2,6 +2,7 @@
  * Command parser for JSON, YAML, and Markdown command files
  */
 
+import * as path from 'path';
 import * as yaml from 'js-yaml';
 import matter from 'gray-matter';
 import { Command, ExecutionConstraints } from '../types';
@@ -223,4 +224,66 @@ export function parseCommandFile(filePath: string): Command | undefined {
 
   console.warn(`Unknown file type for command file: ${filePath}`);
   return undefined;
+}
+
+/**
+ * Parse a SKILL.md file (Cursor skills: # Title, ## Description, ## Instructions)
+ * Returns a Command-shaped object for use in registries and execution.
+ */
+export function parseSkillFile(filePath: string, content: string): Command | undefined {
+  try {
+    const lines = content.split('\n');
+    let title = '';
+    let description = '';
+    let instructions = '';
+    let current: 'title' | 'description' | 'instructions' | null = null;
+    const instructionLines: string[] = [];
+
+    for (const line of lines) {
+      const h1 = line.match(/^#\s+(.+)$/);
+      const h2 = line.match(/^##\s+(.+)$/);
+      if (h1) {
+        title = h1[1].trim();
+        current = null;
+        continue;
+      }
+      if (h2) {
+        const section = h2[1].trim().toLowerCase();
+        if (section === 'description') {
+          current = 'description';
+          continue;
+        }
+        if (section === 'instructions') {
+          current = 'instructions';
+          continue;
+        }
+        current = null;
+        continue;
+      }
+      if (current === 'description') {
+        description += (description ? '\n' : '') + line;
+      } else if (current === 'instructions') {
+        instructionLines.push(line);
+      }
+    }
+
+    instructions = instructionLines.join('\n').trim();
+    if (!title) {
+      // Fallback: use directory name
+      title = path.basename(path.dirname(filePath)) || 'skill';
+    }
+    const id = title.replace(/\s+/g, '-').toLowerCase().replace(/[^a-z0-9-]/g, '') || 'skill';
+
+    return {
+      id,
+      filePath,
+      description: description.trim() || undefined,
+      instructions: instructions || content.trim(),
+      sections: undefined,
+      constraints: undefined
+    };
+  } catch (error) {
+    console.error(`Failed to parse SKILL.md ${filePath}:`, error);
+    return undefined;
+  }
 }

@@ -3,15 +3,16 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { Command } from '../types';
-import { resolveWorkspacePath, listFiles, directoryExists } from '../utils/fileUtils';
+import { listFiles, directoryExists, getAllWorkspaceFolders, getUserHome, getAdditionalCommandDirs, CURSOR_CONTEXT_DIRS, resolveConfigPath } from '../utils/fileUtils';
 import { parseCommandFile } from '../utils/commandParser';
 
-const COMMANDS_DIR = '.cursor/commands';
+const COMMANDS_DIR = CURSOR_CONTEXT_DIRS.COMMANDS;
 
 export class CommandRegistry implements vscode.Disposable {
   private commands: Map<string, Command> = new Map();
-  private watcher: vscode.FileSystemWatcher | undefined;
+  private watchers: vscode.FileSystemWatcher[] = [];
   private onDidChangeEmitter = new vscode.EventEmitter<void>();
   public readonly onDidChange = this.onDidChangeEmitter.event;
 
@@ -21,33 +22,74 @@ export class CommandRegistry implements vscode.Disposable {
   }
 
   /**
-   * Reload all commands from the commands directory
+   * Get all command directories to search
    */
-  reloadCommands(): void {
-    this.commands.clear();
-    const commandsDir = resolveWorkspacePath(COMMANDS_DIR);
+  private getCommandDirectories(): string[] {
+    const dirs: string[] = [];
 
-    if (!directoryExists(commandsDir)) {
-      console.log(`Commands directory does not exist: ${commandsDir}`);
-      return;
-    }
-
-    // Find all command files
-    const jsonFiles = listFiles(commandsDir, '.json');
-    const yamlFiles = listFiles(commandsDir, '.yaml').concat(listFiles(commandsDir, '.yml'));
-    const mdFiles = listFiles(commandsDir, '.md').concat(listFiles(commandsDir, '.markdown'));
-
-    const allFiles = [...jsonFiles, ...yamlFiles, ...mdFiles];
-
-    for (const filePath of allFiles) {
-      const command = parseCommandFile(filePath);
-      if (command) {
-        const key = this.getCommandKey(command.filePath, command.id);
-        this.commands.set(key, command);
+    // 1. Workspace folders
+    const workspaceFolders = getAllWorkspaceFolders();
+    for (const workspacePath of workspaceFolders) {
+      const workspaceCommandsDir = path.join(workspacePath, COMMANDS_DIR);
+      if (directoryExists(workspaceCommandsDir)) {
+        dirs.push(workspaceCommandsDir);
       }
     }
 
-    console.log(`Loaded ${this.commands.size} commands from ${commandsDir}`);
+    // 2. User home directory
+    const homeCommandsDir = path.join(getUserHome(), COMMANDS_DIR);
+    if (directoryExists(homeCommandsDir)) {
+      dirs.push(homeCommandsDir);
+    }
+
+    // 3. Additional configured directories
+    for (const dir of getAdditionalCommandDirs()) {
+      const resolvedDir = resolveConfigPath(dir);
+      if (directoryExists(resolvedDir)) {
+        dirs.push(resolvedDir);
+      } else {
+        console.log(`Configured command directory does not exist: ${resolvedDir}`);
+      }
+    }
+
+    return dirs;
+  }
+
+  /**
+   * Reload all commands from all command directories
+   */
+  reloadCommands(): void {
+    this.commands.clear();
+    const commandDirs = this.getCommandDirectories();
+
+    if (commandDirs.length === 0) {
+      console.log('No command directories found');
+      return;
+    }
+
+    let totalLoaded = 0;
+
+    for (const commandsDir of commandDirs) {
+      // Find all command files
+      const jsonFiles = listFiles(commandsDir, '.json');
+      const yamlFiles = listFiles(commandsDir, '.yaml').concat(listFiles(commandsDir, '.yml'));
+      const mdFiles = listFiles(commandsDir, '.md').concat(listFiles(commandsDir, '.markdown'));
+
+      const allFiles = [...jsonFiles, ...yamlFiles, ...mdFiles];
+
+      for (const filePath of allFiles) {
+        const command = parseCommandFile(filePath);
+        if (command) {
+          const key = this.getCommandKey(command.filePath, command.id);
+          this.commands.set(key, command);
+          totalLoaded++;
+        }
+      }
+
+      console.log(`Loaded ${allFiles.length} command files from ${commandsDir}`);
+    }
+
+    console.log(`Total: Loaded ${totalLoaded} commands from ${commandDirs.length} directory(ies)`);
     this.onDidChangeEmitter.fire();
   }
 
@@ -87,29 +129,53 @@ export class CommandRegistry implements vscode.Disposable {
   }
 
   /**
-   * Set up file watcher for commands directory
+   * Set up file watchers for all command directories
    */
   private watchCommands(): void {
-    const commandsDir = resolveWorkspacePath(COMMANDS_DIR);
-    const pattern = new vscode.RelativePattern(commandsDir, '**/*.{json,yaml,yml,md,markdown}');
+    const commandDirs = this.getCommandDirectories();
+    const workspaceFolders = getAllWorkspaceFolders();
 
-    this.watcher = vscode.workspace.createFileSystemWatcher(pattern);
-    this.watcher.onDidCreate(() => {
-      console.log('Command file created, reloading...');
-      this.reloadCommands();
-    });
-    this.watcher.onDidChange(() => {
-      console.log('Command file changed, reloading...');
-      this.reloadCommands();
-    });
-    this.watcher.onDidDelete(() => {
-      console.log('Command file deleted, reloading...');
-      this.reloadCommands();
-    });
+    for (const commandsDir of commandDirs) {
+      let watcher: vscode.FileSystemWatcher;
+
+      // Check if this directory is within a workspace folder
+      const workspaceFolder = workspaceFolders.find(wf => commandsDir.startsWith(wf));
+      
+      if (workspaceFolder) {
+        // Use RelativePattern for workspace directories
+        const relativePath = path.relative(workspaceFolder, commandsDir);
+        const pattern = new vscode.RelativePattern(workspaceFolder, `${relativePath}/**/*.{json,yaml,yml,md,markdown}`);
+        watcher = vscode.workspace.createFileSystemWatcher(pattern);
+      } else {
+        // For directories outside workspace, use glob pattern with absolute path
+        // Note: VS Code file watchers work best with workspace-relative paths
+        // For external paths, we'll use a glob pattern
+        const globPattern = `${commandsDir.replace(/\\/g, '/')}/**/*.{json,yaml,yml,md,markdown}`;
+        watcher = vscode.workspace.createFileSystemWatcher(globPattern);
+      }
+
+      watcher.onDidCreate(() => {
+        console.log(`Command file created in ${commandsDir}, reloading...`);
+        this.reloadCommands();
+      });
+      watcher.onDidChange(() => {
+        console.log(`Command file changed in ${commandsDir}, reloading...`);
+        this.reloadCommands();
+      });
+      watcher.onDidDelete(() => {
+        console.log(`Command file deleted in ${commandsDir}, reloading...`);
+        this.reloadCommands();
+      });
+
+      this.watchers.push(watcher);
+    }
   }
 
   dispose(): void {
-    this.watcher?.dispose();
+    for (const watcher of this.watchers) {
+      watcher.dispose();
+    }
+    this.watchers = [];
     this.onDidChangeEmitter.dispose();
   }
 }

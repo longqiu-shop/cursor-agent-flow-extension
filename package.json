@@ -2,15 +2,20 @@
   "name": "cursor-agent-scheduler",
   "displayName": "Cursor Agent Scheduler",
   "description": "Schedule and run Cursor AI agents automatically using cron schedules",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "jolocity",
   "repository": {
     "type": "git",
     "url": "https://github.com/jolocity/cursor-agent-scheduler.git"
   },
+  "homepage": "https://github.com/jolocity/cursor-agent-scheduler#readme",
+  "bugs": {
+    "url": "https://github.com/jolocity/cursor-agent-scheduler/issues"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },
+  "icon": "icon.png",
   "categories": [
     "Other",
     "Machine Learning"
@@ -114,6 +119,31 @@
           "group": "3_history"
         }
       ]
+    },
+    "configuration": {
+      "title": "Agent Schedules",
+      "properties": {
+        "agentSchedules.additionalCommandDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional directories to search for command files (.md, .json, .yaml). Supports absolute paths, relative paths, and ~ for home directory."
+        },
+        "agentSchedules.additionalSkillsDirectories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional directories to search for skills (subdirs with SKILL.md or .md)."
+        },
+        "agentSchedules.additionalAgentsDirectories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional directories to search for agent/subagent definitions (.md, .json, .yaml). create-subagent skill writes to .cursor/agents."
+        }
+      }
     }
   },
   "scripts": {
@@ -124,23 +154,29 @@
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "package": "vsce package",
-    "prepackage": "npm run compile"
+    "prepackage": "npm run compile",
+    "publish:openvsx": "ts-node scripts/publish-cli.ts",
+    "publish:automate": "playwright test scripts/publish-to-openvsx.ts",
+    "publish:mcp": "ts-node scripts/publish-with-mcp.ts"
   },
   "dependencies": {
     "cron-parser": "^4.9.0",
-    "uuid": "^9.0.0",
+    "gray-matter": "^4.0.3",
     "js-yaml": "^4.1.0",
-    "gray-matter": "^4.0.3"
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@playwright/test": "^1.57.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.19.30",
+    "@types/uuid": "^9.0.8",
     "@types/vscode": "^1.74.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/vsce": "^2.22.0",
     "eslint": "^8.0.0",
-    "typescript": "^5.0.0",
-    "@types/js-yaml": "^4.0.9",
-    "@types/uuid": "^9.0.8",
-    "@vscode/vsce": "^2.22.0"
+    "playwright": "^1.57.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
   }
 }

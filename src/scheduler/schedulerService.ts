@@ -6,6 +6,8 @@ import * as vscode from 'vscode';
 import { Schedule } from '../types';
 import { StorageManager } from '../storage/storageManager';
 import { CommandRegistry } from '../commands/commandRegistry';
+import { SkillRegistry } from '../commands/skillRegistry';
+import { AgentRegistry } from '../commands/agentRegistry';
 import { ExecutionEngine } from '../execution/executionEngine';
 import { getNextRunTime } from '../utils/cronUtils';
 
@@ -24,10 +26,20 @@ export class SchedulerService implements vscode.Disposable {
   private onDidChangeEmitter = new vscode.EventEmitter<void>();
   public readonly onDidChange = this.onDidChangeEmitter.event;
 
-  constructor(storageManager: StorageManager, commandRegistry: CommandRegistry) {
+  constructor(
+    storageManager: StorageManager,
+    commandRegistry: CommandRegistry,
+    skillRegistry: SkillRegistry,
+    agentRegistry: AgentRegistry
+  ) {
     this.storageManager = storageManager;
     this.commandRegistry = commandRegistry;
-    this.executionEngine = new ExecutionEngine(storageManager, commandRegistry);
+    this.executionEngine = new ExecutionEngine(
+      storageManager,
+      commandRegistry,
+      skillRegistry,
+      agentRegistry
+    );
   }
 
   /**

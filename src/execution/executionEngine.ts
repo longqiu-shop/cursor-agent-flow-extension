@@ -2,9 +2,11 @@
  * Execution engine for running schedules (mock implementation)
  */
 
-import { Schedule, Command, RunRecord } from '../types';
+import { Schedule, Command, RunRecord, TargetType } from '../types';
 import { StorageManager } from '../storage/storageManager';
 import { CommandRegistry } from '../commands/commandRegistry';
+import { SkillRegistry } from '../commands/skillRegistry';
+import { AgentRegistry } from '../commands/agentRegistry';
 import { CursorAgentRunner, AgentExecutionResult } from '../agent/cursorAgentRunner';
 import * as vscode from 'vscode';
 
@@ -21,12 +23,32 @@ export class ExecutionEngine {
   private runningExecutions: Map<string, RunningExecution> = new Map();
   private storageManager: StorageManager;
   private commandRegistry: CommandRegistry;
+  private skillRegistry: SkillRegistry;
+  private agentRegistry: AgentRegistry;
   private agentRunner: CursorAgentRunner;
 
-  constructor(storageManager: StorageManager, commandRegistry: CommandRegistry) {
+  constructor(
+    storageManager: StorageManager,
+    commandRegistry: CommandRegistry,
+    skillRegistry: SkillRegistry,
+    agentRegistry: AgentRegistry
+  ) {
     this.storageManager = storageManager;
     this.commandRegistry = commandRegistry;
+    this.skillRegistry = skillRegistry;
+    this.agentRegistry = agentRegistry;
     this.agentRunner = new CursorAgentRunner();
+  }
+
+  private getContextCommand(schedule: Schedule): Command | undefined {
+    if (!schedule.commandRef) return undefined;
+    const { filePath, commandId } = schedule.commandRef;
+    const type = schedule.targetType;
+    if (type === 'command') return this.commandRegistry.getCommand(filePath, commandId);
+    if (type === 'skill') return this.skillRegistry.get(filePath, commandId);
+    // Agent; legacy 'subagent' from old schedules (create-subagent writes to .cursor/agents)
+    if (type === 'agent' || (type as string) === 'subagent') return this.agentRegistry.get(filePath, commandId);
+    return undefined;
   }
 
   /**
@@ -39,19 +61,16 @@ export class ExecutionEngine {
     const runId = this.generateRunId();
     console.log(`[ExecutionEngine] Generated run ID: ${runId}`);
 
-    // Get command if needed
+    // Get context item (command, skill, agent, or subagent) if needed
     let command: Command | undefined;
-    if (schedule.targetType === 'command' && schedule.commandRef) {
-      command = this.commandRegistry.getCommand(
-        schedule.commandRef.filePath,
-        schedule.commandRef.commandId
-      );
-      if (!command) {
-        throw new Error(`Command not found: ${schedule.commandRef.commandId} in ${schedule.commandRef.filePath}`);
-      }
-      console.log(`[ExecutionEngine] Found command: ${command.id}`);
-    } else if (schedule.targetType === 'prompt') {
+    if (schedule.targetType === 'prompt') {
       console.log(`[ExecutionEngine] Using inline prompt: ${schedule.promptTemplate?.substring(0, 50)}...`);
+    } else if (schedule.commandRef) {
+      command = this.getContextCommand(schedule);
+      if (!command) {
+        throw new Error(`${schedule.targetType} not found: ${schedule.commandRef.commandId} in ${schedule.commandRef.filePath}`);
+      }
+      console.log(`[ExecutionEngine] Found ${schedule.targetType}: ${command.id}`);
     }
 
     // Check if already running
@@ -144,9 +163,9 @@ export class ExecutionEngine {
 
       // Prepare prompt
       let prompt = '';
-      if (schedule.targetType === 'prompt' && schedule.promptTemplate) {
+      if (schedule.targetType === 'prompt') {
         // Substitute variables in prompt template
-        prompt = this.agentRunner.substituteVariables(schedule.promptTemplate);
+        prompt = this.agentRunner.substituteVariables(schedule.promptTemplate ?? '');
       } else if (command) {
         // Execute command
         const result = await this.agentRunner.executeCommand(schedule, command);

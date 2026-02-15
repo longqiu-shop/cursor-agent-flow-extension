@@ -6,12 +6,16 @@
 import * as vscode from 'vscode';
 import { SchedulerService } from './scheduler/schedulerService';
 import { CommandRegistry } from './commands/commandRegistry';
+import { SkillRegistry } from './commands/skillRegistry';
+import { AgentRegistry } from './commands/agentRegistry';
 import { StorageManager } from './storage/storageManager';
 import { ScheduleTreeView } from './ui/scheduleTreeView';
 import { ExtensionCommands } from './commands/extensionCommands';
 
 let schedulerService: SchedulerService | undefined;
 let commandRegistry: CommandRegistry | undefined;
+let skillRegistry: SkillRegistry | undefined;
+let agentRegistry: AgentRegistry | undefined;
 let storageManager: StorageManager | undefined;
 let treeView: ScheduleTreeView | undefined;
 
@@ -21,7 +25,14 @@ export function activate(context: vscode.ExtensionContext) {
   // Initialize core services
   storageManager = new StorageManager(context.workspaceState);
   commandRegistry = new CommandRegistry();
-  schedulerService = new SchedulerService(storageManager, commandRegistry);
+  skillRegistry = new SkillRegistry();
+  agentRegistry = new AgentRegistry();
+  schedulerService = new SchedulerService(
+    storageManager,
+    commandRegistry,
+    skillRegistry,
+    agentRegistry
+  );
   treeView = new ScheduleTreeView(storageManager, schedulerService);
 
   // Register tree view
@@ -35,6 +46,8 @@ export function activate(context: vscode.ExtensionContext) {
     storageManager,
     schedulerService,
     commandRegistry,
+    skillRegistry,
+    agentRegistry,
     treeView
   );
   commands.register(context);
@@ -48,6 +61,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Watch for workspace folder changes
   vscode.workspace.onDidChangeWorkspaceFolders(() => {
     commandRegistry?.reloadCommands();
+    skillRegistry?.reload();
+    agentRegistry?.reload();
     schedulerService?.reloadSchedules();
   });
 
@@ -68,24 +83,24 @@ export function activate(context: vscode.ExtensionContext) {
     treeView?.refresh();
   });
 
-  // Listen for command registry changes to refresh tree view
-  commandRegistry.onDidChange(() => {
-    treeView?.refresh();
-  });
+  // Listen for context registry changes to refresh tree view
+  commandRegistry.onDidChange(() => treeView?.refresh());
+  skillRegistry?.onDidChange(() => treeView?.refresh());
+  agentRegistry?.onDidChange(() => treeView?.refresh());
 
   context.subscriptions.push(
     treeViewProvider,
     schedulerService,
     commandRegistry,
+    skillRegistry!,
+    agentRegistry!,
     schedulesFileWatcher
   );
 }
 
 export function deactivate() {
-  if (schedulerService) {
-    schedulerService.dispose();
-  }
-  if (commandRegistry) {
-    commandRegistry.dispose();
-  }
+  schedulerService?.dispose();
+  commandRegistry?.dispose();
+  skillRegistry?.dispose();
+  agentRegistry?.dispose();
 }

@@ -1,0 +1,97 @@
+{
+  "description": "Playwright MCP automation script for publishing to Open VSX",
+  "steps": [
+    {
+      "tool": "browser_navigate",
+      "inputs": {
+        "url": "https://open-vsx.org/"
+      }
+    },
+    {
+      "tool": "browser_wait_for",
+      "inputs": {
+        "text": "Sign In",
+        "timeout": 30
+      }
+    },
+    {
+      "tool": "browser_click",
+      "inputs": {
+        "element": "text=Sign In",
+        "button": "left"
+      }
+    },
+    {
+      "tool": "browser_wait_for",
+      "inputs": {
+        "url": "open-vsx.org",
+        "timeout": 60
+      }
+    },
+    {
+      "tool": "browser_navigate",
+      "inputs": {
+        "url": "https://open-vsx.org/user-settings/namespaces"
+      }
+    },
+    {
+      "tool": "browser_wait_for",
+      "inputs": {
+        "state": "networkidle",
+        "timeout": 30
+      }
+    },
+    {
+      "tool": "browser_snapshot",
+      "inputs": {}
+    },
+    {
+      "tool": "browser_navigate",
+      "inputs": {
+        "url": "https://open-vsx.org/publish"
+      }
+    },
+    {
+      "tool": "browser_wait_for",
+      "inputs": {
+        "state": "networkidle",
+        "timeout": 30
+      }
+    },
+    {
+      "tool": "browser_click",
+      "inputs": {
+        "element": "input[type='file']",
+        "button": "left"
+      }
+    },
+    {
+      "tool": "browser_upload",
+      "inputs": {
+        "element": "input[type='file']",
+        "paths": ["/Users/jolocity/Documents/cursor-agent-scheduler/cursor-agent-scheduler-1.0.0.vsix"]
+      }
+    },
+    {
+      "tool": "browser_wait_for",
+      "inputs": {
+        "text": "Publish",
+        "timeout": 10
+      }
+    },
+    {
+      "tool": "browser_click",
+      "inputs": {
+        "element": "button:has-text('Publish')",
+        "button": "left"
+      }
+    },
+    {
+      "tool": "browser_wait_for",
+      "inputs": {
+        "text": "success",
+        "timeout": 60
+      }
+    }
+  ]
+}

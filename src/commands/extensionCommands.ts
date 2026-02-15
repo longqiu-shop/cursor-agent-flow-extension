@@ -6,6 +6,8 @@ import * as vscode from 'vscode';
 import { StorageManager } from '../storage/storageManager';
 import { SchedulerService } from '../scheduler/schedulerService';
 import { CommandRegistry } from './commandRegistry';
+import { SkillRegistry } from './skillRegistry';
+import { AgentRegistry } from './agentRegistry';
 import { ScheduleTreeView, ScheduleTreeItem } from '../ui/scheduleTreeView';
 import { ScheduleEditorWebview } from '../ui/scheduleEditorWebview';
 import { RunHistoryView } from '../ui/runHistoryView';
@@ -20,10 +22,14 @@ export class ExtensionCommands {
     private storageManager: StorageManager,
     private schedulerService: SchedulerService,
     private commandRegistry: CommandRegistry,
+    private skillRegistry: SkillRegistry,
+    private agentRegistry: AgentRegistry,
     private treeView: ScheduleTreeView
   ) {
     this.scheduleEditor = new ScheduleEditorWebview(
       commandRegistry,
+      skillRegistry,
+      agentRegistry,
       schedulerService,
       storageManager
     );
@@ -165,7 +171,9 @@ export class ExtensionCommands {
 
   private async reloadCommands(): Promise<void> {
     this.commandRegistry.reloadCommands();
-    vscode.window.showInformationMessage('Commands reloaded');
+    this.skillRegistry.reload();
+    this.agentRegistry.reload();
+    vscode.window.showInformationMessage('Commands, skills, and agents reloaded');
   }
 
   /**
