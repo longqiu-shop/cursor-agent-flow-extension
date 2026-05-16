@@ -2,7 +2,7 @@ import * as path from 'path';
 import { ArtifactSpec, WorkflowDefinition, WorkflowStep } from '../types';
 import { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 
-const WORKFLOW_STEP_TYPES = new Set(['agent', 'readJson', 'fanout', 'join']);
+const WORKFLOW_STEP_TYPES = new Set(['agent', 'readJson', 'fanout', 'join', 'toolInventory', 'planRuntime']);
 
 export interface WorkflowValidationResult {
   valid: boolean;
@@ -113,6 +113,76 @@ function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRe
         errors.push(...validateArtifactPath(input.outputPath, `join step ${step.id} input.outputPath`));
       }
       break;
+    case 'toolInventory':
+      errors.push(...validateToolInventoryStep(step, input, schemaRegistry));
+      break;
+    case 'planRuntime':
+      errors.push(...validatePlanRuntimeStep(step, input, schemaRegistry));
+      break;
+  }
+
+  return errors;
+}
+
+function validateToolInventoryStep(
+  step: WorkflowStep,
+  input: Record<string, unknown>,
+  schemaRegistry?: WorkflowSchemaRegistry
+): string[] {
+  const errors: string[] = [];
+  if (input.include !== undefined) {
+    if (!Array.isArray(input.include) || !input.include.every(item => typeof item === 'string' && item.trim().length > 0)) {
+      errors.push(`toolInventory step ${step.id} input.include must be an array of non-empty strings`);
+    }
+  }
+
+  if (!step.output) {
+    errors.push(`toolInventory step ${step.id} output is required`);
+    return errors;
+  }
+
+  if (step.output.format !== 'json') {
+    errors.push(`toolInventory step ${step.id} output.format must be json`);
+  }
+  if (step.output.schema !== 'tool-inventory@1') {
+    errors.push(`toolInventory step ${step.id} output.schema must be tool-inventory@1`);
+  } else {
+    errors.push(...validateSchemaId(step.output.schema, `toolInventory step ${step.id} output.schema`, schemaRegistry));
+  }
+
+  return errors;
+}
+
+function validatePlanRuntimeStep(
+  step: WorkflowStep,
+  input: Record<string, unknown>,
+  schemaRegistry?: WorkflowSchemaRegistry
+): string[] {
+  const errors: string[] = [];
+  if (typeof input.planArtifact !== 'string' || input.planArtifact.trim().length === 0) {
+    errors.push(`planRuntime step ${step.id} input.planArtifact is required`);
+  } else {
+    errors.push(...validateArtifactPath(input.planArtifact, `planRuntime step ${step.id} input.planArtifact`));
+  }
+
+  if (typeof input.toolInventoryArtifact !== 'string' || input.toolInventoryArtifact.trim().length === 0) {
+    errors.push(`planRuntime step ${step.id} input.toolInventoryArtifact is required`);
+  } else {
+    errors.push(...validateArtifactPath(input.toolInventoryArtifact, `planRuntime step ${step.id} input.toolInventoryArtifact`));
+  }
+
+  if (!step.output) {
+    errors.push(`planRuntime step ${step.id} output is required`);
+    return errors;
+  }
+
+  if (step.output.format !== 'json') {
+    errors.push(`planRuntime step ${step.id} output.format must be json`);
+  }
+  if (step.output.schema !== 'plan-run@1') {
+    errors.push(`planRuntime step ${step.id} output.schema must be plan-run@1`);
+  } else {
+    errors.push(...validateSchemaId(step.output.schema, `planRuntime step ${step.id} output.schema`, schemaRegistry));
   }
 
   return errors;

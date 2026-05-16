@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { WorkflowDefinition, WorkflowStep } from '../types';
 import { validateWorkflowDefinition } from './workflowValidation';
+import { createWorkflowSchemaRegistry } from './workflowSchemas';
 
 const agentStep = (id: string): WorkflowStep => ({
   id,
@@ -205,5 +206,169 @@ test('rejects invalid child step input in multi-step fanout', () => {
   assert.equal(result.valid, false);
   assert.deepEqual(result.errors, [
     'Agent step comment-pr input.prompt or input.promptFile is required'
+  ]);
+});
+
+test('validates existing static workflow step types after adding plan runtime types', () => {
+  const workflow: WorkflowDefinition = {
+    id: 'static-regression',
+    name: 'Static Regression',
+    filePath: '.cursor/workflows/static-regression.json',
+    version: 1,
+    steps: [
+      agentStep('scan'),
+      {
+        id: 'read-items',
+        type: 'readJson',
+        input: {
+          path: 'scan.md',
+          select: 'items'
+        }
+      },
+      {
+        id: 'fanout-items',
+        type: 'fanout',
+        input: {
+          itemsFrom: 'steps.read-items.output',
+          step: agentStep('process-item')
+        }
+      },
+      {
+        id: 'join-items',
+        type: 'join',
+        input: {
+          from: 'items/*.md',
+          outputPath: 'summary/items.md'
+        }
+      }
+    ]
+  };
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
+test('validates toolInventory workflow steps', () => {
+  const workflow: WorkflowDefinition = {
+    id: 'inventory-workflow',
+    name: 'Inventory Workflow',
+    filePath: '.cursor/workflows/inventory.json',
+    version: 1,
+    steps: [
+      {
+        id: 'inventory',
+        type: 'toolInventory',
+        input: {
+          include: ['skills', 'agents', 'commands', 'workflowPrimitives', 'runtimeActions']
+        },
+        output: {
+          path: 'tool-inventory.json',
+          format: 'json',
+          schema: 'tool-inventory@1'
+        }
+      }
+    ]
+  };
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects invalid toolInventory workflow steps', () => {
+  const workflow: WorkflowDefinition = {
+    id: 'inventory-workflow',
+    name: 'Inventory Workflow',
+    filePath: '.cursor/workflows/inventory.json',
+    version: 1,
+    steps: [
+      {
+        id: 'inventory',
+        type: 'toolInventory',
+        input: {
+          include: ['skills', 123]
+        },
+        output: {
+          path: 'tool-inventory.txt',
+          format: 'text',
+          schema: 'wrong-schema'
+        }
+      }
+    ]
+  };
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, [
+    'step inventory output.schema is not registered: wrong-schema',
+    'toolInventory step inventory input.include must be an array of non-empty strings',
+    'toolInventory step inventory output.format must be json',
+    'toolInventory step inventory output.schema must be tool-inventory@1'
+  ]);
+});
+
+test('validates planRuntime workflow steps', () => {
+  const workflow: WorkflowDefinition = {
+    id: 'plan-runtime-workflow',
+    name: 'Plan Runtime Workflow',
+    filePath: '.cursor/workflows/plan-runtime.json',
+    version: 1,
+    steps: [
+      {
+        id: 'execute-plan',
+        type: 'planRuntime',
+        input: {
+          planArtifact: 'plan/master-plan.json',
+          toolInventoryArtifact: 'tool-inventory.json'
+        },
+        output: {
+          path: 'plan-run.json',
+          format: 'json',
+          schema: 'plan-run@1'
+        }
+      }
+    ]
+  };
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects invalid planRuntime workflow steps', () => {
+  const workflow: WorkflowDefinition = {
+    id: 'plan-runtime-workflow',
+    name: 'Plan Runtime Workflow',
+    filePath: '.cursor/workflows/plan-runtime.json',
+    version: 1,
+    steps: [
+      {
+        id: 'execute-plan',
+        type: 'planRuntime',
+        input: {
+          planArtifact: '../plan/master-plan.json'
+        },
+        output: {
+          path: 'plan-run.txt',
+          format: 'text',
+          schema: 'tool-inventory@1'
+        }
+      }
+    ]
+  };
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, [
+    'planRuntime step execute-plan input.planArtifact must not traverse outside runDir',
+    'planRuntime step execute-plan input.toolInventoryArtifact is required',
+    'planRuntime step execute-plan output.format must be json',
+    'planRuntime step execute-plan output.schema must be plan-run@1'
   ]);
 });
