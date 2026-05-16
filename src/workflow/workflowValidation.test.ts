@@ -30,6 +30,70 @@ const workflowWithFanoutInput = (input: Record<string, unknown>): WorkflowDefini
   ]
 });
 
+const workflowWithAgentInput = (input: Record<string, unknown>): WorkflowDefinition => ({
+  id: 'unit-workflow',
+  name: 'Unit Workflow',
+  filePath: '.cursor/workflows/unit.json',
+  version: 1,
+  steps: [
+    {
+      id: 'scan-prs',
+      type: 'agent',
+      input,
+      output: {
+        path: 'scan/prs.json',
+        format: 'json'
+      }
+    }
+  ]
+});
+
+test('validates agent input.promptFile as an alternative to inline prompt', () => {
+  const result = validateWorkflowDefinition(workflowWithAgentInput({
+    title: 'Scan PRs',
+    promptFile: 'scan-prs.md'
+  }));
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects agent input with both prompt and promptFile', () => {
+  const result = validateWorkflowDefinition(workflowWithAgentInput({
+    title: 'Scan PRs',
+    prompt: 'Scan Slack',
+    promptFile: 'scan-prs.md'
+  }));
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, [
+    'Agent step scan-prs input must use either prompt or promptFile, not both'
+  ]);
+});
+
+test('rejects agent input without prompt or promptFile', () => {
+  const result = validateWorkflowDefinition(workflowWithAgentInput({
+    title: 'Scan PRs'
+  }));
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, [
+    'Agent step scan-prs input.prompt or input.promptFile is required'
+  ]);
+});
+
+test('rejects agent promptFile paths outside the workflow directory', () => {
+  const result = validateWorkflowDefinition(workflowWithAgentInput({
+    title: 'Scan PRs',
+    promptFile: '../scan-prs.md'
+  }));
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, [
+    'Agent step scan-prs input.promptFile must not traverse outside the workflow directory'
+  ]);
+});
+
 test('validates legacy fanout input.step', () => {
   const result = validateWorkflowDefinition(workflowWithFanoutInput({
     itemsFrom: 'steps.read-prs.output',
@@ -140,6 +204,6 @@ test('rejects invalid child step input in multi-step fanout', () => {
 
   assert.equal(result.valid, false);
   assert.deepEqual(result.errors, [
-    'Agent step comment-pr input.prompt is required'
+    'Agent step comment-pr input.prompt or input.promptFile is required'
   ]);
 });

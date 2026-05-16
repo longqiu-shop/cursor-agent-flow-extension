@@ -196,9 +196,10 @@
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
+    "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "pnpm run compile && pnpm run lint",
+    "pretest": "pnpm run clean && pnpm run compile && pnpm run lint",
     "lint": "eslint src --ext ts",
     "test": "node --test out/workflow/*.test.js",
     "package": "vsce package",

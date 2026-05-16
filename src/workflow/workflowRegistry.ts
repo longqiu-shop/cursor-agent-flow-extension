@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { WorkflowDefinition } from '../types';
 import { CURSOR_CONTEXT_DIRS, directoryExists, getAllWorkspaceFolders, listFiles, readJsonFile } from '../utils/fileUtils';
 import { validateWorkflowDefinition } from './workflowValidation';
@@ -30,11 +31,18 @@ export class WorkflowRegistry implements vscode.Disposable {
     this.workflowsByRef.clear();
     this.workflowIds.clear();
     this.errors = [];
+    this.schemaRegistry.clearJsonSchemas();
 
     const workflowDirectories = this.getWorkflowDirectories();
     console.log(`[WorkflowRegistry] Reloading workflows from ${workflowDirectories.length} directorie(s): ${workflowDirectories.join(', ')}`);
     for (const workflowsDir of workflowDirectories) {
+      this.loadWorkflowSchemas(workflowsDir);
+    }
+    for (const workflowsDir of workflowDirectories) {
       for (const filePath of listFiles(workflowsDir, '.json')) {
+        if (filePath.endsWith('.schema.json')) {
+          continue;
+        }
         this.loadWorkflowFile(filePath);
       }
     }
@@ -117,6 +125,45 @@ export class WorkflowRegistry implements vscode.Disposable {
     this.workflowIds.set(workflow.id, filePath);
     this.workflowsByRef.set(this.key(filePath, workflow.id), workflow);
     console.log(`[WorkflowRegistry] Registered workflow ${workflow.id} from ${filePath}`);
+  }
+
+  private loadWorkflowSchemas(workflowsDir: string): void {
+    for (const filePath of this.listSchemaFiles(workflowsDir)) {
+      const schema = readJsonFile<unknown>(filePath);
+      if (!schema) {
+        this.errors.push({
+          filePath,
+          errors: ['Failed to parse workflow schema JSON']
+        });
+        continue;
+      }
+
+      const validation = this.schemaRegistry.registerJsonSchema(schema, filePath);
+      if (!validation.valid) {
+        this.errors.push({
+          filePath,
+          errors: validation.errors
+        });
+      }
+    }
+  }
+
+  private listSchemaFiles(dirPath: string): string[] {
+    if (!directoryExists(dirPath)) {
+      return [];
+    }
+
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      const entryPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...this.listSchemaFiles(entryPath));
+      } else if (entry.isFile() && entry.name.endsWith('.schema.json')) {
+        files.push(entryPath);
+      }
+    }
+    return files;
   }
 
   private getWorkflowDirectories(): string[] {

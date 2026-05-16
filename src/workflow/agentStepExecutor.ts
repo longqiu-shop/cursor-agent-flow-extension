@@ -1,7 +1,9 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { ArtifactSpec, StepStatusArtifact, WorkflowStep, WorkflowStepRun } from '../types';
 import { CursorAgentRunner } from '../agent/cursorAgentRunner';
 import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue';
+import { readFileSafe } from '../utils/fileUtils';
 import { renderTemplate } from './variableResolver';
 import { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecutor } from './workflowRunner';
 import { ArtifactWaitResult } from './artifactStore';
@@ -10,6 +12,7 @@ import { STEP_STATUS_SCHEMA_ID } from './workflowSchemas';
 interface AgentStepInput {
   title?: string;
   prompt?: string;
+  promptFile?: string;
   freshChat?: boolean;
   submitMode?: 'worktree' | 'currentWorkspace';
 }
@@ -24,10 +27,11 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
 
   async execute(step: WorkflowStep, stepRun: WorkflowStepRun, context: WorkflowExecutionContext): Promise<StepExecutionResult> {
     const input = step.input as AgentStepInput | undefined;
-    if (!input?.prompt) {
+    const promptTemplate = this.getPromptTemplate(step, input, context);
+    if (!promptTemplate.ok) {
       return {
         status: 'failed',
-        error: `agent step ${step.id} requires input.prompt`
+        error: promptTemplate.error
       };
     }
     if (!step.output) {
@@ -37,7 +41,7 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       };
     }
 
-    const title = input.title ? renderTemplate(input.title, context.variables) : step.name ?? step.id;
+    const title = input?.title ? renderTemplate(input.title, context.variables) : step.name ?? step.id;
     const outputPath = context.artifactStore.resolveArtifactPath(step.output.path, context.variables);
     const statusSpec: ArtifactSpec = {
       path: `status/${stepRun.stepRunId}.json`,
@@ -46,15 +50,15 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     };
     const statusPath = context.artifactStore.resolveArtifactPath(statusSpec.path, context.variables);
     stepRun.title = title;
-    stepRun.promptPreview = input.prompt.slice(0, 200);
+    stepRun.promptPreview = promptTemplate.value.slice(0, 200);
     stepRun.expectedArtifact = outputPath;
 
-    const prompt = this.buildPrompt(renderTemplate(input.prompt, context.variables), outputPath, statusPath, step.output.format);
+    const prompt = this.buildPrompt(renderTemplate(promptTemplate.value, context.variables), outputPath, statusPath, step.output.format);
     const submitResult = await this.submissionQueue.enqueue(
       () => this.runner.submitPrompt(prompt, {
         title,
-        freshChat: input.freshChat !== false,
-        submitMode: input.submitMode ?? 'worktree'
+        freshChat: input?.freshChat !== false,
+        submitMode: input?.submitMode ?? 'worktree'
       }),
       context.token
     );
@@ -157,6 +161,66 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       status: 'found',
       value: result.value ?? result.content
     };
+  }
+
+  private getPromptTemplate(
+    step: WorkflowStep,
+    input: AgentStepInput | undefined,
+    context: WorkflowExecutionContext
+  ): { ok: true; value: string } | { ok: false; error: string } {
+    const prompt = input?.prompt;
+    const promptFile = input?.promptFile;
+
+    if (prompt && promptFile) {
+      return {
+        ok: false,
+        error: `agent step ${step.id} must use either input.prompt or input.promptFile, not both`
+      };
+    }
+
+    if (prompt) {
+      return { ok: true, value: prompt };
+    }
+
+    if (!promptFile) {
+      return {
+        ok: false,
+        error: `agent step ${step.id} requires input.prompt or input.promptFile`
+      };
+    }
+
+    let promptFilePath: string;
+    try {
+      promptFilePath = this.resolvePromptFilePath(context.workflow.filePath, promptFile);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+
+    const content = readFileSafe(promptFilePath);
+    if (content === undefined) {
+      return {
+        ok: false,
+        error: `agent step ${step.id} could not read input.promptFile: ${promptFilePath}`
+      };
+    }
+
+    return { ok: true, value: content.trim() };
+  }
+
+  private resolvePromptFilePath(workflowFilePath: string, promptFile: string): string {
+    if (path.isAbsolute(promptFile)) {
+      throw new Error(`agent promptFile must be relative to the workflow file: ${promptFile}`);
+    }
+
+    const normalized = path.normalize(promptFile);
+    if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.includes(`${path.sep}..${path.sep}`)) {
+      throw new Error(`agent promptFile must not traverse outside the workflow directory: ${promptFile}`);
+    }
+
+    return path.resolve(path.dirname(workflowFilePath), promptFile);
   }
 
   private buildPrompt(userPrompt: string, outputPath: string, statusPath: string, outputFormat: ArtifactSpec['format']): string {

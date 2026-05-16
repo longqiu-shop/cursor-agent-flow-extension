@@ -12,7 +12,6 @@ import { WorkflowRegistry } from './workflow/workflowRegistry';
 import { RunningWorkflowRegistry } from './workflow/runningWorkflowRegistry';
 import { WorkflowSchemaRegistry } from './workflow/workflowSchemaRegistry';
 import { createWorkflowSchemaRegistry } from './workflow/workflowSchemas';
-import { registerIndexServingPrReviewSchemas } from './workflow/schemas/prReviewManifestSchema';
 import { CursorAgentSubmissionQueue } from './agent/cursorAgentSubmissionQueue';
 import { StorageManager } from './storage/storageManager';
 import { ScheduleTreeView } from './ui/scheduleTreeView';
@@ -38,7 +37,6 @@ export function activate(context: vscode.ExtensionContext) {
   skillRegistry = new SkillRegistry();
   agentRegistry = new AgentRegistry();
   workflowSchemaRegistry = createWorkflowSchemaRegistry();
-  registerIndexServingPrReviewSchemas(workflowSchemaRegistry);
   workflowRegistry = new WorkflowRegistry(workflowSchemaRegistry);
   runningWorkflowRegistry = new RunningWorkflowRegistry();
   submissionQueue = new CursorAgentSubmissionQueue();

@@ -82,9 +82,7 @@ function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRe
       if (typeof input.title !== 'string' || input.title.trim().length === 0) {
         errors.push(`Agent step ${step.id} input.title is required`);
       }
-      if (typeof input.prompt !== 'string' || input.prompt.trim().length === 0) {
-        errors.push(`Agent step ${step.id} input.prompt is required`);
-      }
+      errors.push(...validateAgentPromptInput(step, input));
       break;
     case 'readJson':
       if (typeof input.path !== 'string' || input.path.trim().length === 0) {
@@ -117,6 +115,35 @@ function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRe
       break;
   }
 
+  return errors;
+}
+
+function validateAgentPromptInput(step: WorkflowStep, input: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  const hasPrompt = input.prompt !== undefined;
+  const hasPromptFile = input.promptFile !== undefined;
+
+  if (hasPrompt && hasPromptFile) {
+    return [`Agent step ${step.id} input must use either prompt or promptFile, not both`];
+  }
+
+  if (hasPrompt) {
+    if (typeof input.prompt !== 'string' || input.prompt.trim().length === 0) {
+      errors.push(`Agent step ${step.id} input.prompt must be a non-empty string`);
+    }
+    return errors;
+  }
+
+  if (hasPromptFile) {
+    if (typeof input.promptFile !== 'string' || input.promptFile.trim().length === 0) {
+      errors.push(`Agent step ${step.id} input.promptFile must be a non-empty string`);
+    } else {
+      errors.push(...validateWorkflowRelativePath(input.promptFile, `Agent step ${step.id} input.promptFile`));
+    }
+    return errors;
+  }
+
+  errors.push(`Agent step ${step.id} input.prompt or input.promptFile is required`);
   return errors;
 }
 
@@ -210,6 +237,26 @@ export function validateArtifactPath(artifactPath: string, label = 'artifact pat
   const normalized = path.normalize(artifactPath);
   if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.includes(`${path.sep}..${path.sep}`)) {
     errors.push(`${label} must not traverse outside runDir`);
+  }
+
+  return errors;
+}
+
+function validateWorkflowRelativePath(filePath: string, label: string): string[] {
+  const errors: string[] = [];
+
+  if (!filePath || filePath.trim().length === 0) {
+    errors.push(`${label} is required`);
+    return errors;
+  }
+
+  if (path.isAbsolute(filePath)) {
+    errors.push(`${label} must be relative to the workflow file`);
+  }
+
+  const normalized = path.normalize(filePath);
+  if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.includes(`${path.sep}..${path.sep}`)) {
+    errors.push(`${label} must not traverse outside the workflow directory`);
   }
 
   return errors;
