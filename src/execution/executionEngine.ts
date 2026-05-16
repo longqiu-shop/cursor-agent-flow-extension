@@ -18,6 +18,7 @@ import { FanoutStepExecutor } from '../workflow/fanoutStepExecutor';
 import { JoinStepExecutor } from '../workflow/joinStepExecutor';
 import { ToolContextProvider } from '../workflow/toolContextProvider';
 import { ToolInventoryStepExecutor } from '../workflow/toolInventoryStepExecutor';
+import { PlanRuntimeStepExecutor } from '../workflow/planRuntimeStepExecutor';
 import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
 import * as vscode from 'vscode';
 
@@ -69,7 +70,8 @@ export class ExecutionEngine {
           commandRegistry,
           skillRegistry,
           agentRegistry
-        }))
+        })),
+        new PlanRuntimeStepExecutor(schemaRegistry)
       ]
     );
   }
