@@ -1,0 +1,12 @@
+.pnpm-store/**
+.gitignore
+.cursor/**
+.vscode/**
+src/**
+scripts/**
+playwright.config.ts
+tsconfig.json
+pnpm-lock.yaml
+out/**
+!out/extension.js
+!out/extension.js.map

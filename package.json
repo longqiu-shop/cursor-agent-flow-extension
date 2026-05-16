@@ -1,16 +1,16 @@
 {
-  "name": "cursor-agent-scheduler",
-  "displayName": "Cursor Agent Scheduler",
-  "description": "Schedule and run Cursor AI agents automatically using cron schedules",
+  "name": "cursor-agent-flow-extension",
+  "displayName": "Cursor Agent Flow",
+  "description": "Schedule and orchestrate Cursor AI agents with cron schedules and multi-step workflows",
   "version": "1.0.1",
-  "publisher": "jolocity",
+  "publisher": "longqiu-shop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jolocity/cursor-agent-scheduler.git"
+    "url": "https://github.com/longqiu-shop/cursor-agent-flow-extension.git"
   },
-  "homepage": "https://github.com/jolocity/cursor-agent-scheduler#readme",
+  "homepage": "https://github.com/longqiu-shop/cursor-agent-flow-extension#readme",
   "bugs": {
-    "url": "https://github.com/jolocity/cursor-agent-scheduler/issues"
+    "url": "https://github.com/longqiu-shop/cursor-agent-flow-extension/issues"
   },
   "engines": {
     "vscode": "^1.74.0"
@@ -24,9 +24,11 @@
     "cursor",
     "ai",
     "agent",
+    "workflow",
     "scheduler",
     "automation",
-    "cron"
+    "cron",
+    "fanout"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -195,15 +197,15 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run compile",
     "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --sourcemap",
     "pretest": "pnpm run clean && pnpm run compile && pnpm run lint",
     "lint": "eslint src --ext ts",
     "test": "node --test out/workflow/*.test.js",
-    "package": "vsce package",
-    "prepackage": "pnpm run compile",
+    "package": "vsce package --no-dependencies",
+    "prepackage": "pnpm run clean && pnpm run compile && pnpm run bundle",
     "publish:openvsx": "ts-node scripts/publish-cli.ts",
     "publish:automate": "playwright test scripts/publish-to-openvsx.ts",
     "publish:mcp": "ts-node scripts/publish-with-mcp.ts"
@@ -223,6 +225,7 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.28.0",
     "eslint": "^8.0.0",
     "playwright": "^1.57.0",
     "ts-node": "^10.9.2",
