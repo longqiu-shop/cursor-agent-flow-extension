@@ -103,13 +103,7 @@ function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRe
       if (typeof input.itemsFrom !== 'string' || input.itemsFrom.trim().length === 0) {
         errors.push(`fanout step ${step.id} input.itemsFrom is required`);
       }
-      if (!isWorkflowStep(input.step)) {
-        errors.push(`fanout step ${step.id} input.step must be a workflow step`);
-      } else if (input.step.type === 'fanout') {
-        errors.push(`Nested fanout is not supported in step ${step.id}`);
-      } else {
-        errors.push(...validateSteps([input.step], schemaRegistry));
-      }
+      errors.push(...validateFanoutChildSteps(step, input, schemaRegistry));
       break;
     case 'join':
       if (typeof input.from !== 'string' || input.from.trim().length === 0) {
@@ -123,6 +117,55 @@ function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRe
       break;
   }
 
+  return errors;
+}
+
+function validateFanoutChildSteps(
+  step: WorkflowStep,
+  input: Record<string, unknown>,
+  schemaRegistry?: WorkflowSchemaRegistry
+): string[] {
+  const errors: string[] = [];
+  const hasStep = input.step !== undefined;
+  const hasSteps = input.steps !== undefined;
+
+  if (hasStep && hasSteps) {
+    errors.push(`fanout step ${step.id} input must use either step or steps, not both`);
+    return errors;
+  }
+
+  if (hasStep) {
+    if (!isWorkflowStep(input.step)) {
+      return [`fanout step ${step.id} input.step must be a workflow step`];
+    }
+    return validateFanoutStepList(step.id, [input.step], schemaRegistry);
+  }
+
+  if (hasSteps) {
+    if (!Array.isArray(input.steps) || input.steps.length === 0) {
+      return [`fanout step ${step.id} input.steps must be a non-empty array of workflow steps`];
+    }
+    if (!input.steps.every(isWorkflowStep)) {
+      return [`fanout step ${step.id} input.steps must contain only workflow steps`];
+    }
+    return validateFanoutStepList(step.id, input.steps, schemaRegistry);
+  }
+
+  errors.push(`fanout step ${step.id} input.step or input.steps is required`);
+  return errors;
+}
+
+function validateFanoutStepList(
+  fanoutStepId: string,
+  childSteps: WorkflowStep[],
+  schemaRegistry?: WorkflowSchemaRegistry
+): string[] {
+  const errors: string[] = [];
+  if (childSteps.some(childStep => childStep.type === 'fanout')) {
+    errors.push(`Nested fanout is not supported in step ${fanoutStepId}`);
+    return errors;
+  }
+  errors.push(...validateSteps(childSteps, schemaRegistry));
   return errors;
 }
 

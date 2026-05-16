@@ -5,6 +5,7 @@ import { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecutor } f
 interface FanoutInput {
   itemsFrom?: string;
   step?: WorkflowStep;
+  steps?: WorkflowStep[];
 }
 
 export class FanoutStepExecutor implements WorkflowStepExecutor {
@@ -18,10 +19,11 @@ export class FanoutStepExecutor implements WorkflowStepExecutor {
         error: `fanout step ${step.id} requires input.itemsFrom`
       };
     }
-    if (!input.step) {
+    const childSteps = this.getChildSteps(input);
+    if (childSteps.length === 0) {
       return {
         status: 'failed',
-        error: `fanout step ${step.id} requires input.step`
+        error: `fanout step ${step.id} requires input.step or input.steps`
       };
     }
 
@@ -43,21 +45,29 @@ export class FanoutStepExecutor implements WorkflowStepExecutor {
       }
 
       const item = items[index];
-      const childStepRunId = this.createChildStepRunId(step.id, input.step.id, item, index);
-      const { stepRun, result } = await context.executeChildStep(input.step, childStepRunId, {
+      const itemVariables: Record<string, unknown> = {
         item,
         index,
-        stepRunId: childStepRunId
-      });
-      childRuns.push(stepRun);
+        steps: this.copyParentStepVariables(context.variables.steps)
+      };
 
-      if (result.status !== 'succeeded') {
-        return {
-          status: result.status,
-          error: result.error,
-          blockedReason: result.blockedReason,
-          childRuns
-        };
+      for (const childStep of childSteps) {
+        const childStepRunId = this.createChildStepRunId(step.id, childStep.id, item, index);
+        const { stepRun, result } = await context.executeChildStep(childStep, childStepRunId, {
+          ...itemVariables,
+          stepRunId: childStepRunId
+        });
+        childRuns.push(stepRun);
+        this.recordChildStepOutput(itemVariables, childStep.id, result);
+
+        if (result.status !== 'succeeded') {
+          return {
+            status: result.status,
+            error: result.error,
+            blockedReason: result.blockedReason,
+            childRuns
+          };
+        }
       }
     }
 
@@ -65,6 +75,32 @@ export class FanoutStepExecutor implements WorkflowStepExecutor {
       status: 'succeeded',
       childRuns,
       output: childRuns
+    };
+  }
+
+  private getChildSteps(input: FanoutInput): WorkflowStep[] {
+    if (Array.isArray(input.steps)) {
+      return input.steps;
+    }
+    return input.step ? [input.step] : [];
+  }
+
+  private copyParentStepVariables(steps: unknown): Record<string, unknown> {
+    if (!steps || typeof steps !== 'object' || Array.isArray(steps)) {
+      return {};
+    }
+    return { ...(steps as Record<string, unknown>) };
+  }
+
+  private recordChildStepOutput(variables: Record<string, unknown>, stepId: string, result: StepExecutionResult): void {
+    const steps = this.copyParentStepVariables(variables.steps);
+    variables.steps = {
+      ...steps,
+      [stepId]: {
+        output: result.output,
+        outputArtifact: result.outputArtifact,
+        status: result.status
+      }
     };
   }
 
