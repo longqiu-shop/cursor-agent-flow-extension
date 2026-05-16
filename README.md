@@ -1,214 +1,322 @@
-# Cursor Agent Scheduler
+# Cursor Agent Flow
 
-A VS Code extension for [Cursor](https://cursor.sh) that lets you schedule and automatically run AI agent prompts using cron schedules.
+Cursor Agent Flow is a Cursor/VS Code extension for scheduling and orchestrating Cursor agents from workspace configuration. It can run one-off prompts, reusable command files, Cursor skills, agent definitions, and multi-step workflows on cron schedules.
+
+The extension is designed for local Cursor automation. It stores schedules in the workspace, submits prompts through Cursor's agent UI, tracks run history, and records workflow artifacts under `.cursor/agent-runs/`.
 
 ## Features
 
-- **Schedule AI Prompts**: Set up cron-based schedules to run prompts automatically
-- **Inline Prompts**: Write prompts directly in the schedule configuration
-- **Command Files**: Reference reusable command definitions from `.cursor/commands/`
-- **Variable Substitution**: Use `{datetime}`, `{date}`, `{time}`, `{timestamp}` in prompts
-- **Run History**: Track execution history and results
-- **Shareable Schedules**: Store schedules in `.cursor/agent-schedules.json` for team sharing
-
-## Installation
-
-### Option 1: Install from Cursor Marketplace (Easiest)
-
-1. Open Cursor
-2. Go to Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`)
-3. Search for "Cursor Agent Scheduler"
-4. Click **Install**
-
-The extension will be available from [Open VSX](https://open-vsx.org/) once published.
-
-### Option 2: Install from VSIX Package
-
-1. Download the latest `.vsix` file from [Releases](https://github.com/jolocity/cursor-agent-scheduler/releases)
-2. Open Cursor
-3. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
-4. Run: `Extensions: Install from VSIX...`
-5. Select the downloaded `.vsix` file
-6. Reload Cursor when prompted
-
-### Option 2: Install from Source (Development)
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/jolocity/cursor-agent-scheduler.git
-   cd cursor-agent-scheduler
-   ```
-
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-
-3. Compile the extension:
-   ```bash
-   pnpm run compile
-   ```
-
-4. Package the extension:
-   ```bash
-   pnpm run package
-   ```
-   This creates a `.vsix` file in the project root.
-
-5. Install the VSIX in Cursor:
-   - Open Command Palette (`Cmd+Shift+P`)
-   - Run: `Extensions: Install from VSIX...`
-   - Select the generated `.vsix` file
-
-### Option 3: Development Mode
-
-For active development:
-
-1. Clone and install (steps 1-2 from Option 2)
-2. Open the project in Cursor
-3. Press `F5` to launch Extension Development Host
-4. The extension will be active in the new window
-
-## Usage
-
-### Creating a Schedule
-
-1. Open Command Palette (`Cmd+Shift+P`)
-2. Run "Agent Schedules: Add Schedule"
-3. Configure your schedule:
-   - **Name**: A descriptive name
-   - **Cron Schedule**: When to run (e.g., `0 9 * * *` for 9 AM daily)
-   - **Target**: Choose "Inline Prompt" or "Command File"
-   - **Prompt**: Your AI prompt (supports variables like `{datetime}`)
-
-### Cron Schedule Examples
-
-| Schedule | Description |
-|----------|-------------|
-| `*/15 * * * *` | Every 15 minutes |
-| `0 * * * *` | Every hour |
-| `0 9 * * *` | Daily at 9 AM |
-| `0 9 * * 1-5` | Weekdays at 9 AM |
-| `0 0 * * 0` | Weekly on Sunday |
-
-### Variable Substitution
-
-Use these variables in your prompts:
-
-- `{datetime}` - Current date and time (e.g., `2026-01-18-10-30-00`)
-- `{date}` - Current date (e.g., `2026-01-18`)
-- `{time}` - Current time (e.g., `10:30:00`)
-- `{timestamp}` - Unix timestamp
-
-Example prompt:
-```
-Create a file called report-{datetime}.md with a summary of today's tasks
-```
-
-### Command Files
-
-Create reusable command definitions in `.cursor/commands/`:
-
-```markdown
----
-id: daily-report
-name: Daily Report
-description: Generate a daily status report
----
-
-# Daily Report Generator
-
-Create a markdown file with today's date containing:
-1. Summary of completed tasks
-2. Pending items
-3. Blockers
-```
-
-### Schedule Configuration
-
-Schedules are stored in `.cursor/agent-schedules.json`:
-
-```json
-{
-  "schedules": [
-    {
-      "id": "unique-id",
-      "name": "Daily Report",
-      "enabled": true,
-      "cronSchedule": "0 9 * * 1-5",
-      "targetType": "prompt",
-      "inlinePrompt": "Generate a status report for {date}",
-      "executionMode": "ide"
-    }
-  ]
-}
-```
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| Agent Schedules: Add Schedule | Create a new schedule |
-| Agent Schedules: Edit | Edit an existing schedule |
-| Agent Schedules: Run Now | Execute a schedule immediately |
-| Agent Schedules: Enable | Enable a disabled schedule |
-| Agent Schedules: Disable | Disable a schedule |
-| Agent Schedules: View Run History | View execution history |
-| Agent Schedules: Test Execution | Test agent execution with a sample prompt |
-
-## How It Works
-
-The extension uses Cursor's internal VS Code commands to execute prompts:
-
-1. Opens the chat with the prompt pre-filled using `workbench.action.chat.open`
-2. Submits the prompt using `composer.triggerCreateWorktreeButton`
-3. Monitors for file changes to track execution results
+- Schedule Cursor agent work with cron expressions.
+- Run schedules manually from the Agent Schedules view.
+- Use inline prompt templates with `{date}`, `{time}`, `{datetime}`, and `{timestamp}` substitutions.
+- Load reusable commands from `.cursor/commands`, `~/.cursor/commands`, and configured extra directories.
+- Load Cursor skills from `.cursor/skills`, `~/.cursor/skills-cursor`, and configured extra directories.
+- Load agent definitions from `.cursor/agents`, `~/.cursor/agents`, and configured extra directories.
+- Run JSON workflow definitions from `.cursor/workflows`.
+- Track run history in workspace state.
+- Inspect, open, and cancel active workflow runs.
 
 ## Requirements
 
-- [Cursor](https://cursor.sh) IDE
-- Node.js 18+
+- Cursor or VS Code compatible with the VS Code extension API declared in `package.json`.
+- Node.js 18 or newer.
+- pnpm 10.x. This repo currently declares `pnpm@10.28.0`.
+
+Local agent execution depends on Cursor commands such as `workbench.action.chat.open`, `composer.triggerCreateWorktreeButton`, and `composer.sendToAgent`. Cloud execution is not implemented; use local IDE mode.
+
+## Install From Source
+
+```bash
+git clone https://github.com/longqiu-shop/cursor-agent-flow-extension.git
+cd cursor-agent-flow-extension
+pnpm install --frozen-lockfile
+pnpm run package
+```
+
+This creates a VSIX in the project root:
+
+```bash
+cursor-agent-flow-extension-1.0.1.vsix
+```
+
+Install it in Cursor with `Extensions: Install from VSIX...`.
 
 ## Development
 
 ```bash
 # Install dependencies
-pnpm install
+pnpm install --frozen-lockfile
 
 # Compile TypeScript
 pnpm run compile
 
-# Watch mode (auto-compile on changes)
+# Compile in watch mode
 pnpm run watch
 
-# Package extension as .vsix
-pnpm run package
+# Run unit tests
+pnpm test
 
-# Run extension in development mode
-Press F5 in Cursor
+# Build a distributable VSIX
+pnpm run package
 ```
 
-## Building for Distribution
+For interactive extension development, open this folder in Cursor and press `F5` to launch an Extension Development Host.
 
-To create a distributable `.vsix` package:
+## Packaging
+
+The package step bundles the extension entrypoint with esbuild and then asks `vsce` to package the bundled output:
 
 ```bash
-pnpm install
 pnpm run package
 ```
 
-This will create `cursor-agent-scheduler-1.0.0.vsix` in the project root, which can be shared and installed in Cursor.
+`vsce` does not understand pnpm dependency layouts well, so the extension is bundled first and packaged with `--no-dependencies`. `.vscodeignore` keeps local development files, sources, pnpm store data, and tests out of the VSIX while preserving `out/extension.js` and its source map.
+
+## Unit Tests
+
+Tests use Node's built-in test runner against compiled JavaScript:
+
+```bash
+pnpm test
+```
+
+The `pretest` script runs:
+
+```bash
+pnpm run clean
+pnpm run compile
+pnpm run lint
+```
+
+Then the test script runs:
+
+```bash
+node --test out/workflow/*.test.js
+```
+
+## Extension Commands
+
+The extension contributes these command palette commands:
+
+| Command | Purpose |
+| --- | --- |
+| `Agent Schedules: Add Schedule` | Create a schedule in the webview editor. |
+| `Agent Schedules: Edit` | Edit an existing schedule. |
+| `Agent Schedules: Run Now` | Run a schedule immediately. |
+| `Agent Schedules: Enable` | Enable a disabled schedule. |
+| `Agent Schedules: Disable` | Disable an enabled schedule. |
+| `Agent Schedules: View Run History` | View recorded schedule run history. |
+| `Agent Schedules: View Active Workflow Runs` | Pick from active workflow runs. |
+| `Agent Schedules: Inspect Workflow Run` | Show workflow run and step details. |
+| `Agent Schedules: Open Workflow Run Folder` | Reveal a workflow run artifact folder. |
+| `Agent Schedules: Cancel Workflow Run` | Cancel a cancellable workflow run. |
+| `Agent Schedules: Reload Commands` | Reload commands, skills, agents, and workflows. |
+| `Agent Schedules: Test Execution` | Submit a quick test prompt to Cursor. |
+
+The Agent Schedules tree appears in the Explorer view.
+
+## Schedule Configuration
+
+Schedules are stored in:
+
+```text
+.cursor/agent-schedules.json
+```
+
+The extension reads this file from the first workspace folder and merges user-specific enable/disable overrides from workspace state.
+
+Example inline prompt schedule:
+
+```json
+{
+  "version": "1.0",
+  "schedules": [
+    {
+      "id": "daily-status",
+      "name": "Daily Status",
+      "enabled": false,
+      "cron": "0 9 * * 1-5",
+      "timezone": "America/Los_Angeles",
+      "targetType": "prompt",
+      "promptTemplate": "Create status-{date}.md with today's project status.",
+      "executionMode": "ide",
+      "outputConfig": {
+        "type": "none"
+      }
+    }
+  ]
+}
+```
+
+Supported schedule targets:
+
+- `prompt`: uses `promptTemplate`.
+- `command`: uses `commandRef`.
+- `skill`: uses `commandRef`.
+- `agent`: uses `commandRef`.
+- `workflow`: uses `workflowRef`.
+
+Example workflow schedule:
+
+```json
+{
+  "id": "workflow-smoke",
+  "name": "Workflow Smoke Test",
+  "enabled": false,
+  "cron": "0 */4 * * *",
+  "timezone": "America/Los_Angeles",
+  "targetType": "workflow",
+  "workflowRef": {
+    "filePath": ".cursor/workflows/example-workflow.json",
+    "workflowId": "example-workflow"
+  },
+  "executionMode": "ide",
+  "outputConfig": {
+    "type": "none"
+  }
+}
+```
+
+## Commands, Skills, And Agents
+
+Command and agent files can be Markdown, JSON, YAML, or YML. Markdown files require an `id` in frontmatter. JSON and YAML files require `id` plus either `instructions` or `prompt`.
+
+Example Markdown command:
+
+```markdown
+---
+id: daily-report
+description: Generate a daily status report
+---
+
+Create a short Markdown status report for {date}.
+```
+
+The extension scans these locations:
+
+| Target | Default locations | Extra setting |
+| --- | --- | --- |
+| Commands | `.cursor/commands`, `~/.cursor/commands` | `agentSchedules.additionalCommandDirectories` |
+| Skills | `.cursor/skills`, `~/.cursor/skills-cursor` | `agentSchedules.additionalSkillsDirectories` |
+| Agents | `.cursor/agents`, `~/.cursor/agents` | `agentSchedules.additionalAgentsDirectories` |
+| Workflows | `.cursor/workflows` | Not configurable |
+
+Relative extra directories are resolved from the current process working directory. Absolute paths and `~` are also supported.
+
+## Workflows
+
+Workflows live in `.cursor/workflows/*.json`. Files ending in `.schema.json` are loaded as artifact schemas and are not treated as workflows.
+
+Workflow runs are written to:
+
+```text
+.cursor/agent-runs/<run-id>/
+```
+
+Each run directory contains `workflow-run.json` plus any artifacts produced by the workflow.
+
+Supported workflow step types:
+
+| Step type | Purpose |
+| --- | --- |
+| `agent` | Submit a Cursor agent prompt and wait for an output artifact. |
+| `readJson` | Read a JSON artifact, optionally validate it, and select a nested value. |
+| `fanout` | Iterate over an array and run one or more child workflow steps for each item. |
+| `join` | Collect matching artifact files and write a Markdown index. |
+
+Workflow templates use double braces, for example `{{item.number}}`, `{{index}}`, `{{run.dir}}`, and `{{steps.scan.output}}`. Inline schedule prompt templates use single-brace date/time variables such as `{date}`.
+
+Example workflow:
+
+```json
+{
+  "id": "example-workflow",
+  "name": "Example Workflow",
+  "version": 1,
+  "defaults": {
+    "timeoutSeconds": 1800,
+    "onStepFailure": "stop",
+    "fanoutConcurrency": "sequential"
+  },
+  "steps": [
+    {
+      "id": "scan",
+      "type": "agent",
+      "name": "Scan for work",
+      "input": {
+        "title": "Scan for work",
+        "freshChat": true,
+        "submitMode": "worktree",
+        "prompt": "Find items to process and write JSON to the required artifact path."
+      },
+      "output": {
+        "path": "scan/items.json",
+        "format": "json"
+      }
+    },
+    {
+      "id": "read-items",
+      "type": "readJson",
+      "input": {
+        "path": "scan/items.json",
+        "select": "items"
+      }
+    },
+    {
+      "id": "process-items",
+      "type": "fanout",
+      "input": {
+        "itemsFrom": "steps.read-items.output",
+        "step": {
+          "id": "process-item",
+          "type": "agent",
+          "input": {
+            "title": "Process {{item.id}}",
+            "prompt": "Process item {{item.id}}."
+          },
+          "output": {
+            "path": "items/{{item.id}}.md",
+            "format": "markdown"
+          }
+        }
+      }
+    },
+    {
+      "id": "join-items",
+      "type": "join",
+      "input": {
+        "from": "items/*.md",
+        "outputPath": "summary/items.md"
+      }
+    }
+  ]
+}
+```
+
+Agent workflow steps append an output contract to the submitted prompt. The agent must write its complete result to the requested `.tmp` artifact path and then rename it to the final artifact path. If it cannot continue without human input, it can write a status artifact marking the step as blocked.
+
+## Project Layout
+
+```text
+src/
+  agent/       Cursor agent submission and local execution helpers
+  commands/    command, skill, and agent registries
+  execution/   schedule execution engine
+  scheduler/   cron scheduling service
+  storage/     schedule and run-history persistence
+  ui/          tree views, webviews, and run detail views
+  utils/       file, cron, and command parsing helpers
+  workflow/    workflow registry, runner, step executors, and tests
+```
+
+## Notes And Limitations
+
+- Local IDE execution is the implemented path. Cloud execution currently returns an unsupported error.
+- Workflow execution is only supported in local IDE mode.
+- Workflow fanout runs sequentially.
+- The extension uses Cursor command IDs that may change across Cursor releases.
+- Run history is stored in VS Code workspace state; workflow artifacts are stored on disk under `.cursor/agent-runs/`.
 
 ## License
 
 MIT
-
-## Publishing
-
-This extension is published to [Open VSX](https://open-vsx.org/), which Cursor uses as its extension marketplace.
-
-See [PUBLISH.md](PUBLISH.md) for instructions on how to publish updates.
-
-## Contributing
-
-Contributions welcome! Please open an issue or PR.
