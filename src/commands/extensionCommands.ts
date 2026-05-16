@@ -58,6 +58,7 @@ export class ExtensionCommands {
       vscode.commands.registerCommand('agentSchedules.inspectWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.inspectWorkflowRun(item)),
       vscode.commands.registerCommand('agentSchedules.openWorkflowRunFolder', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.openWorkflowRunFolder(item)),
       vscode.commands.registerCommand('agentSchedules.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
+      vscode.commands.registerCommand('agentSchedules.startAgenticWorkflow', () => this.startAgenticWorkflow()),
       vscode.commands.registerCommand('agentSchedules.reloadCommands', () => this.reloadCommands()),
       vscode.commands.registerCommand('agentSchedules.testExecution', () => this.testExecution()),
     ];
@@ -117,6 +118,22 @@ export class ExtensionCommands {
       const message = error instanceof Error ? error.message : 'Unknown error';
       vscode.window.showErrorMessage(`Failed to run schedule: ${message}`);
     }
+  }
+
+  private async startAgenticWorkflow(): Promise<void> {
+    const goal = await vscode.window.showInputBox({
+      prompt: 'What should the agentic workflow accomplish?',
+      placeHolder: 'Example: Summarize today\'s git changes',
+      ignoreFocusOut: true
+    });
+    if (!goal || goal.trim().length === 0) {
+      return;
+    }
+
+    console.log('[ExtensionCommands] Agentic workflow goal captured:', { goal });
+    vscode.window.showInformationMessage(
+      `Agentic workflow goal captured: ${goal.trim()}. Direct plan runtime execution is not implemented yet.`
+    );
   }
 
   private async enableSchedule(item: ScheduleTreeItem): Promise<void> {
