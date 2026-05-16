@@ -16,6 +16,8 @@ import { AgentStepExecutor } from '../workflow/agentStepExecutor';
 import { ReadJsonStepExecutor } from '../workflow/readJsonStepExecutor';
 import { FanoutStepExecutor } from '../workflow/fanoutStepExecutor';
 import { JoinStepExecutor } from '../workflow/joinStepExecutor';
+import { ToolContextProvider } from '../workflow/toolContextProvider';
+import { ToolInventoryStepExecutor } from '../workflow/toolInventoryStepExecutor';
 import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
 import * as vscode from 'vscode';
 
@@ -62,7 +64,12 @@ export class ExecutionEngine {
         new AgentStepExecutor(this.agentRunner, submissionQueue),
         new ReadJsonStepExecutor(),
         new FanoutStepExecutor(),
-        new JoinStepExecutor()
+        new JoinStepExecutor(),
+        new ToolInventoryStepExecutor(ToolContextProvider.fromRegistries({
+          commandRegistry,
+          skillRegistry,
+          agentRegistry
+        }))
       ]
     );
   }

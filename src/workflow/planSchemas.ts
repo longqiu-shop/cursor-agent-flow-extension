@@ -74,6 +74,53 @@ export interface PlanValidationArtifact {
   warnings?: PlanValidationError[];
 }
 
+export type ToolInventorySource = 'skills' | 'agents' | 'commands' | 'workflowPrimitives' | 'runtimeActions';
+
+export interface ToolInventoryEntry {
+  id: string;
+  source: ToolInventorySource;
+  capabilities: string[];
+  description?: string;
+}
+
+export interface ToolInventory {
+  schemaVersion: typeof PLAN_SCHEMA_VERSION;
+  generatedAt?: string;
+  tools: ToolInventoryEntry[];
+}
+
+export interface AuditCriterionResult {
+  criterion: string;
+  passed: boolean;
+  evidence: string[];
+}
+
+export interface AuditArtifact {
+  schemaVersion: typeof PLAN_SCHEMA_VERSION;
+  criteriaResults: AuditCriterionResult[];
+  missingEvidence: string[];
+  risks: string[];
+  nextAction: 'advance' | 'block' | 'retry' | 'needsApproval';
+}
+
+export interface MemoryProposalEntry {
+  key: string;
+  sourceArtifact: string;
+  value: unknown;
+  safeToRetain: boolean;
+  mayContainSecrets: boolean;
+}
+
+export interface MemoryProposalArtifact {
+  schemaVersion: typeof PLAN_SCHEMA_VERSION;
+  proposals: MemoryProposalEntry[];
+}
+
+export interface OutputContractArtifact {
+  schemaVersion: typeof PLAN_SCHEMA_VERSION;
+  expectedOutputs: ArtifactSpec[];
+}
+
 export interface PlanRunStage {
   stageRunId: string;
   stageId: string;
@@ -158,7 +205,7 @@ export function validatePlanAmendmentProposal(value: unknown): SchemaValidationR
   return finish(value, errors);
 }
 
-export function validateToolInventory(value: unknown): SchemaValidationResult {
+export function validateToolInventory(value: unknown): SchemaValidationResult<ToolInventory> {
   const errors: string[] = [];
   const inventory = expectRecord(value, TOOL_INVENTORY_SCHEMA_ID, errors);
   if (!inventory) {
@@ -168,7 +215,11 @@ export function validateToolInventory(value: unknown): SchemaValidationResult {
   validateSchemaVersion(inventory, TOOL_INVENTORY_SCHEMA_ID, errors);
   validateToolEntries(inventory.tools, errors);
 
-  return finish(value, errors);
+  if (inventory.generatedAt !== undefined && typeof inventory.generatedAt !== 'string') {
+    errors.push(`${TOOL_INVENTORY_SCHEMA_ID}.generatedAt must be string`);
+  }
+
+  return finish<ToolInventory>(value, errors);
 }
 
 export function validateMemoryProposal(value: unknown): SchemaValidationResult {
