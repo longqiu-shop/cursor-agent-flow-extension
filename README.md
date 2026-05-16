@@ -41,17 +41,17 @@ The extension will be available from [Open VSX](https://open-vsx.org/) once publ
 
 2. Install dependencies:
    ```bash
-   npm install
+   pnpm install
    ```
 
 3. Compile the extension:
    ```bash
-   npm run compile
+   pnpm run compile
    ```
 
 4. Package the extension:
    ```bash
-   npm run package
+   pnpm run package
    ```
    This creates a `.vsix` file in the project root.
 
@@ -173,16 +173,16 @@ The extension uses Cursor's internal VS Code commands to execute prompts:
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Compile TypeScript
-npm run compile
+pnpm run compile
 
 # Watch mode (auto-compile on changes)
-npm run watch
+pnpm run watch
 
 # Package extension as .vsix
-npm run package
+pnpm run package
 
 # Run extension in development mode
 Press F5 in Cursor
@@ -193,8 +193,8 @@ Press F5 in Cursor
 To create a distributable `.vsix` package:
 
 ```bash
-npm install
-npm run package
+pnpm install
+pnpm run package
 ```
 
 This will create `cursor-agent-scheduler-1.0.0.vsix` in the project root, which can be shared and installed in Cursor.

@@ -32,6 +32,7 @@
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
+  "packageManager": "pnpm@10.28.0",
   "contributes": {
     "commands": [
       {
@@ -61,6 +62,23 @@
         "title": "Agent Schedules: View Run History"
       },
       {
+        "command": "agentSchedules.viewWorkflowRuns",
+        "title": "Agent Schedules: View Active Workflow Runs",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "agentSchedules.inspectWorkflowRun",
+        "title": "Agent Schedules: Inspect Workflow Run"
+      },
+      {
+        "command": "agentSchedules.openWorkflowRunFolder",
+        "title": "Agent Schedules: Open Workflow Run Folder"
+      },
+      {
+        "command": "agentSchedules.cancelWorkflowRun",
+        "title": "Agent Schedules: Cancel Workflow Run"
+      },
+      {
         "command": "agentSchedules.reloadCommands",
         "title": "Agent Schedules: Reload Commands",
         "icon": "$(refresh)"
@@ -87,6 +105,16 @@
           "group": "navigation"
         },
         {
+          "command": "agentSchedules.runNow",
+          "when": "view == agentSchedules",
+          "group": "navigation"
+        },
+        {
+          "command": "agentSchedules.viewWorkflowRuns",
+          "when": "view == agentSchedules",
+          "group": "navigation"
+        },
+        {
           "command": "agentSchedules.reloadCommands",
           "when": "view == agentSchedules",
           "group": "navigation"
@@ -95,12 +123,17 @@
       "view/item/context": [
         {
           "command": "agentSchedules.runNow",
-          "when": "view == agentSchedules",
+          "when": "view == agentSchedules && viewItem == schedule-enabled",
+          "group": "inline"
+        },
+        {
+          "command": "agentSchedules.runNow",
+          "when": "view == agentSchedules && viewItem == schedule-disabled",
           "group": "inline"
         },
         {
           "command": "agentSchedules.edit",
-          "when": "view == agentSchedules",
+          "when": "view == agentSchedules && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
           "group": "1_actions"
         },
         {
@@ -115,8 +148,23 @@
         },
         {
           "command": "agentSchedules.viewRuns",
-          "when": "view == agentSchedules",
+          "when": "view == agentSchedules && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
           "group": "3_history"
+        },
+        {
+          "command": "agentSchedules.inspectWorkflowRun",
+          "when": "view == agentSchedules && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "group": "1_workflow"
+        },
+        {
+          "command": "agentSchedules.openWorkflowRunFolder",
+          "when": "view == agentSchedules && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "group": "1_workflow"
+        },
+        {
+          "command": "agentSchedules.cancelWorkflowRun",
+          "when": "view == agentSchedules && viewItem == workflow-run-cancellable",
+          "group": "2_workflow"
         }
       ]
     },
@@ -147,14 +195,14 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "pnpm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
+    "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "package": "vsce package",
-    "prepackage": "npm run compile",
+    "prepackage": "pnpm run compile",
     "publish:openvsx": "ts-node scripts/publish-cli.ts",
     "publish:automate": "playwright test scripts/publish-to-openvsx.ts",
     "publish:mcp": "ts-node scripts/publish-with-mcp.ts"

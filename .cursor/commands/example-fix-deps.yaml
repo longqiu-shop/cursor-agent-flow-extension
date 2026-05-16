@@ -1,7 +1,7 @@
 id: fix-dependencies
 description: Fix dependency issues and update packages
 instructions: |
-  Review package.json and package-lock.json for:
+  Review package.json and pnpm-lock.yaml for:
   
   1. Outdated packages with known security vulnerabilities
   2. Packages that can be updated to latest compatible versions

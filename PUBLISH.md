@@ -15,7 +15,7 @@ Cursor uses **Open VSX** as its extension marketplace. To make your extension av
 The easiest way to publish is using the automated CLI script:
 
 ```bash
-npm run publish:openvsx
+pnpm run publish:openvsx
 ```
 
 This will:
@@ -25,7 +25,7 @@ This will:
 
 **Or with token:**
 ```bash
-npm run publish:openvsx -- --token YOUR_ACCESS_TOKEN
+pnpm run publish:openvsx -- --token YOUR_ACCESS_TOKEN
 ```
 
 ### Option B: Using Playwright Automation
@@ -33,7 +33,7 @@ npm run publish:openvsx -- --token YOUR_ACCESS_TOKEN
 For a more visual, step-by-step automation:
 
 ```bash
-npm run publish:automate
+pnpm run publish:automate
 ```
 
 This opens a browser and automates the publishing flow. You may need to complete GitHub OAuth manually.
@@ -65,13 +65,13 @@ If you prefer to publish manually or the automation doesn't work:
 Install the Open VSX CLI:
 
 ```bash
-npm install -g @openvsx/cli
+pnpm add --global @openvsx/cli
 ```
 
-Or use npx (no global install needed):
+Or use pnpm dlx (no global install needed):
 
 ```bash
-npx @openvsx/cli publish
+pnpm dlx @openvsx/cli publish
 ```
 
 ### Step 4: Package Your Extension
@@ -80,13 +80,13 @@ Make sure your extension is built and packaged:
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Compile TypeScript
-npm run compile
+pnpm run compile
 
 # Package as VSIX
-npm run package
+pnpm run package
 ```
 
 This creates `cursor-agent-scheduler-1.0.0.vsix` in the project root.
@@ -96,8 +96,8 @@ This creates `cursor-agent-scheduler-1.0.0.vsix` in the project root.
 **Option A: Using CLI (Recommended)**
 
 ```bash
-# Using npx (no global install)
-npx @openvsx/cli publish cursor-agent-scheduler-1.0.0.vsix -p YOUR_ACCESS_TOKEN
+# Using pnpm dlx (no global install)
+pnpm dlx @openvsx/cli publish cursor-agent-scheduler-1.0.0.vsix -p YOUR_ACCESS_TOKEN
 
 # Or if installed globally
 ovsx publish cursor-agent-scheduler-1.0.0.vsix -p YOUR_ACCESS_TOKEN
@@ -138,12 +138,12 @@ To publish an update:
 2. Update CHANGELOG.md (if you have one)
 3. Rebuild and package:
    ```bash
-   npm run compile
-   npm run package
+   pnpm run compile
+   pnpm run package
    ```
 4. Publish the new `.vsix` file:
    ```bash
-   npx @openvsx/cli publish cursor-agent-scheduler-1.0.1.vsix -p YOUR_ACCESS_TOKEN
+   pnpm dlx @openvsx/cli publish cursor-agent-scheduler-1.0.1.vsix -p YOUR_ACCESS_TOKEN
    ```
 
 ## Troubleshooting

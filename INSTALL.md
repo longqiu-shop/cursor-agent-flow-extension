@@ -27,7 +27,7 @@ If you want to build it yourself or contribute:
 
 - [Cursor](https://cursor.sh) IDE
 - [Node.js](https://nodejs.org/) 18 or higher
-- npm (comes with Node.js)
+- [pnpm](https://pnpm.io/)
 
 ### Steps
 
@@ -39,17 +39,17 @@ If you want to build it yourself or contribute:
 
 2. **Install dependencies:**
    ```bash
-   npm install
+   pnpm install
    ```
 
 3. **Build the extension:**
    ```bash
-   npm run compile
+   pnpm run compile
    ```
 
 4. **Package as VSIX:**
    ```bash
-   npm run package
+   pnpm run package
    ```
    This creates `cursor-agent-scheduler-1.0.0.vsix` in the project root.
 
@@ -99,8 +99,8 @@ If you don't see these, try:
 ### Build errors?
 
 - Make sure Node.js 18+ is installed: `node --version`
-- Delete `node_modules` and `package-lock.json`, then run `npm install` again
-- Check that TypeScript compiles: `npm run compile`
+- Delete `node_modules`, then run `pnpm install` again
+- Check that TypeScript compiles: `pnpm run compile`
 
 ### Installation from VSIX fails?
 

@@ -16,7 +16,53 @@ export interface AgentExecutionResult {
   error?: string;
 }
 
+export interface AgentSubmitOptions {
+  title?: string;
+  freshChat?: boolean;
+  submitMode?: 'worktree' | 'currentWorkspace';
+}
+
+export interface AgentSubmitResult {
+  success: boolean;
+  output: string;
+  error?: string;
+}
+
 export class CursorAgentRunner {
+  async submitPrompt(prompt: string, options: AgentSubmitOptions = {}): Promise<AgentSubmitResult> {
+    try {
+      if (options.freshChat) {
+        try {
+          await vscode.commands.executeCommand('composer.createNewComposerTab');
+          await this.wait(500);
+        } catch (error) {
+          console.warn('[CursorAgentRunner] Failed to create new composer tab:', error);
+        }
+      }
+
+      console.log(`[CursorAgentRunner] Opening chat${options.title ? `: ${options.title}` : ''}`);
+      await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+      await this.wait(1000);
+
+      if (options.submitMode === 'currentWorkspace') {
+        await vscode.commands.executeCommand('composer.sendToAgent');
+      } else {
+        await vscode.commands.executeCommand('composer.triggerCreateWorktreeButton');
+      }
+
+      return {
+        success: true,
+        output: 'Prompt submitted. Waiting for workflow artifact.'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        output: '',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
   /**
    * Execute a prompt using Cursor's agent system
    */

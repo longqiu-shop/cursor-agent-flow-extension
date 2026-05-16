@@ -8,6 +8,10 @@ import { StorageManager } from '../storage/storageManager';
 import { CommandRegistry } from '../commands/commandRegistry';
 import { SkillRegistry } from '../commands/skillRegistry';
 import { AgentRegistry } from '../commands/agentRegistry';
+import { WorkflowRegistry } from '../workflow/workflowRegistry';
+import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
+import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
+import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue';
 import { ExecutionEngine } from '../execution/executionEngine';
 import { getNextRunTime } from '../utils/cronUtils';
 
@@ -20,6 +24,7 @@ interface ScheduledJob {
 export class SchedulerService implements vscode.Disposable {
   private storageManager: StorageManager;
   private commandRegistry: CommandRegistry;
+  private runningWorkflowRegistry: RunningWorkflowRegistry;
   private executionEngine: ExecutionEngine;
   private jobs: Map<string, ScheduledJob> = new Map();
   private checkInterval?: NodeJS.Timeout;
@@ -30,15 +35,24 @@ export class SchedulerService implements vscode.Disposable {
     storageManager: StorageManager,
     commandRegistry: CommandRegistry,
     skillRegistry: SkillRegistry,
-    agentRegistry: AgentRegistry
+    agentRegistry: AgentRegistry,
+    workflowRegistry: WorkflowRegistry,
+    runningWorkflowRegistry: RunningWorkflowRegistry,
+    submissionQueue: CursorAgentSubmissionQueue,
+    schemaRegistry: WorkflowSchemaRegistry
   ) {
     this.storageManager = storageManager;
     this.commandRegistry = commandRegistry;
+    this.runningWorkflowRegistry = runningWorkflowRegistry;
     this.executionEngine = new ExecutionEngine(
       storageManager,
       commandRegistry,
       skillRegistry,
-      agentRegistry
+      agentRegistry,
+      workflowRegistry,
+      runningWorkflowRegistry,
+      submissionQueue,
+      schemaRegistry
     );
   }
 
@@ -142,10 +156,24 @@ export class SchedulerService implements vscode.Disposable {
   async runSchedule(scheduleId: string): Promise<void> {
     const schedules = await this.storageManager.loadSchedules();
     const schedule = schedules.find(s => s.id === scheduleId);
+    console.log('[SchedulerService] runSchedule lookup:', {
+      scheduleId,
+      loadedScheduleIds: schedules.map(s => `${s.id}:${s.targetType}`),
+      found: Boolean(schedule)
+    });
     
     if (!schedule) {
       throw new Error(`Schedule not found: ${scheduleId}`);
     }
+    console.log('[SchedulerService] runSchedule resolved schedule:', {
+      id: schedule.id,
+      name: schedule.name,
+      targetType: schedule.targetType,
+      executionMode: schedule.executionMode,
+      commandRef: schedule.commandRef,
+      workflowRef: schedule.workflowRef,
+      hasPromptTemplate: Boolean(schedule.promptTemplate)
+    });
 
     // Check if already running
     if (this.executionEngine.isScheduleRunning(scheduleId)) {
@@ -194,6 +222,13 @@ export class SchedulerService implements vscode.Disposable {
   getNextRunTime(scheduleId: string): Date | undefined {
     const job = this.jobs.get(scheduleId);
     return job?.nextRun;
+  }
+
+  cancelWorkflowRun(runId: string): boolean {
+    if (this.executionEngine.cancelWorkflowRun(runId)) {
+      return true;
+    }
+    return this.runningWorkflowRegistry.markCancelled(runId);
   }
 
   /**

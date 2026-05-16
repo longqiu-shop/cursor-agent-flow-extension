@@ -1,5 +1,4 @@
 {
-  "version": "1.0",
   "schedules": [
     {
       "id": "example-daily-report",
@@ -13,6 +12,44 @@
         "createdAt": "2026-01-18T00:00:00Z",
         "description": "Example: Generate daily status report"
       }
+    },
+    {
+      "id": "6a3bea61-7c01-4623-8752-2338ec1f6f9b",
+      "name": "Index-Serving PR Slack scan",
+      "enabled": false,
+      "cron": "0 0 * * *",
+      "timezone": "America/Los_Angeles",
+      "targetType": "prompt",
+      "promptTemplate": "Use the Slack tools to scan recent Slack messages available to me across my workspace from the start of today in my local timezone up to now.\n\nRead relevant messages and thread replies. Find every GitHub pull request mentioned in those messages that requires my attention to review. A PR requires my attention if the message or thread tags me directly, mentions my name, asks me to review, asks for my approval, or otherwise implies I am the intended reviewer.\n\nMy Slack display name or user ID is: <YOUR_SLACK_DISPLAY_NAME_OR_USER_ID>.\n\nKeep only PRs that belong to the index-serving repository.\n\nFor each matching PR, list:\n- PR title\n- PR number\n- URL\n- channel name\n- author, if available\n- Slack message permalink or enough context to find the message\n- why it appears to require my review\n- any notable review/request/status mentioned in the Slack thread\n\nOnly include PRs from the index-serving repo. Ignore PRs from other repos.\n\nOutput the result as a concise Markdown table. If there are no matching PRs, say: \"No index-serving PRs requiring my review were found in recent Slack messages.\"\n\nDo not modify source code or repo files.",
+      "executionMode": "ide",
+      "outputConfig": {
+        "type": "none"
+      },
+      "metadata": {
+        "createdAt": "2026-05-15T22:13:47.833Z",
+        "updatedAt": "2026-05-15T22:21:01.272Z"
+      }
+    },
+    {
+      "id": "index-serving-pr-review-workflow-smoke",
+      "name": "Index-Serving PR Review Workflow Smoke",
+      "enabled": false,
+      "cron": "0 */4 * * *",
+      "timezone": "America/Los_Angeles",
+      "targetType": "workflow",
+      "workflowRef": {
+        "filePath": ".cursor/workflows/index-serving-pr-review.json",
+        "workflowId": "index-serving-pr-review"
+      },
+      "executionMode": "ide",
+      "outputConfig": {
+        "type": "none"
+      },
+      "metadata": {
+        "createdAt": "2026-05-15T00:00:00.000Z",
+        "description": "Disabled smoke-test entry for the index-serving PR review workflow."
+      }
     }
-  ]
+  ],
+  "version": "1.0"
 }

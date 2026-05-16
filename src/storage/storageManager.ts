@@ -37,6 +37,10 @@ export class StorageManager {
   async loadSchedules(): Promise<Schedule[]> {
     const repoSchedules = this.loadRepoSchedules();
     const userOverrides = this.getUserOverrides();
+    console.log(
+      `[StorageManager] Loaded ${repoSchedules.length} schedule(s) from ${this.schedulesFile}: ` +
+      repoSchedules.map(schedule => `${schedule.id}:${schedule.targetType}`).join(', ')
+    );
 
     // Merge repo schedules with user overrides
     return repoSchedules.map(schedule => {

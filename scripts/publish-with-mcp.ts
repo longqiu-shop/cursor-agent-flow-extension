@@ -15,7 +15,7 @@ const VSIX_PATH = path.join(process.cwd(), VSIX_FILE);
 async function publishToOpenVSX() {
   // Check if VSIX file exists
   if (!fs.existsSync(VSIX_PATH)) {
-    throw new Error(`VSIX file not found: ${VSIX_PATH}\nRun 'npm run package' first.`);
+    throw new Error(`VSIX file not found: ${VSIX_PATH}\nRun 'pnpm run package' first.`);
   }
 
   console.log(`📦 Publishing ${VSIX_FILE} to Open VSX...`);

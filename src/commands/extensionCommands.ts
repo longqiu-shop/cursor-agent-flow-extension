@@ -8,14 +8,19 @@ import { SchedulerService } from '../scheduler/schedulerService';
 import { CommandRegistry } from './commandRegistry';
 import { SkillRegistry } from './skillRegistry';
 import { AgentRegistry } from './agentRegistry';
-import { ScheduleTreeView, ScheduleTreeItem } from '../ui/scheduleTreeView';
+import { WorkflowRegistry } from '../workflow/workflowRegistry';
+import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
+import { WorkflowRun } from '../types';
+import { ScheduleTreeView, ScheduleTreeItem, WorkflowRunTreeItem, WorkflowStepTreeItem } from '../ui/scheduleTreeView';
 import { ScheduleEditorWebview } from '../ui/scheduleEditorWebview';
 import { RunHistoryView } from '../ui/runHistoryView';
+import { WorkflowRunDetailsView } from '../ui/workflowRunDetailsView';
 import { CursorAgentExecutor } from '../agent/keyboardAgent';
 
 export class ExtensionCommands {
   private scheduleEditor: ScheduleEditorWebview;
   private runHistoryView: RunHistoryView;
+  private workflowRunDetailsView: WorkflowRunDetailsView;
   private agentExecutor: CursorAgentExecutor;
 
   constructor(
@@ -24,16 +29,20 @@ export class ExtensionCommands {
     private commandRegistry: CommandRegistry,
     private skillRegistry: SkillRegistry,
     private agentRegistry: AgentRegistry,
+    private workflowRegistry: WorkflowRegistry,
+    private runningWorkflowRegistry: RunningWorkflowRegistry,
     private treeView: ScheduleTreeView
   ) {
     this.scheduleEditor = new ScheduleEditorWebview(
       commandRegistry,
       skillRegistry,
       agentRegistry,
+      workflowRegistry,
       schedulerService,
       storageManager
     );
     this.runHistoryView = new RunHistoryView(storageManager);
+    this.workflowRunDetailsView = new WorkflowRunDetailsView();
     this.agentExecutor = new CursorAgentExecutor();
   }
 
@@ -41,10 +50,14 @@ export class ExtensionCommands {
     const commands = [
       vscode.commands.registerCommand('agentSchedules.add', () => this.addSchedule()),
       vscode.commands.registerCommand('agentSchedules.edit', (item?: ScheduleTreeItem) => this.editSchedule(item)),
-      vscode.commands.registerCommand('agentSchedules.runNow', (item: ScheduleTreeItem) => this.runNow(item)),
+      vscode.commands.registerCommand('agentSchedules.runNow', (item?: ScheduleTreeItem) => this.runNow(item)),
       vscode.commands.registerCommand('agentSchedules.enable', (item: ScheduleTreeItem) => this.enableSchedule(item)),
       vscode.commands.registerCommand('agentSchedules.disable', (item: ScheduleTreeItem) => this.disableSchedule(item)),
       vscode.commands.registerCommand('agentSchedules.viewRuns', (item?: ScheduleTreeItem) => this.viewRuns(item)),
+      vscode.commands.registerCommand('agentSchedules.viewWorkflowRuns', () => this.viewWorkflowRuns()),
+      vscode.commands.registerCommand('agentSchedules.inspectWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.inspectWorkflowRun(item)),
+      vscode.commands.registerCommand('agentSchedules.openWorkflowRunFolder', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.openWorkflowRunFolder(item)),
+      vscode.commands.registerCommand('agentSchedules.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
       vscode.commands.registerCommand('agentSchedules.reloadCommands', () => this.reloadCommands()),
       vscode.commands.registerCommand('agentSchedules.testExecution', () => this.testExecution()),
     ];
@@ -79,14 +92,25 @@ export class ExtensionCommands {
     }
   }
 
-  private async runNow(item: ScheduleTreeItem): Promise<void> {
-    const schedule = await this.treeView.getScheduleFromItem(item);
+  private async runNow(item?: ScheduleTreeItem): Promise<void> {
+    const schedule = item
+      ? await this.treeView.getScheduleFromItem(item)
+      : await this.pickSchedule('Select a schedule to run');
     if (!schedule) {
       vscode.window.showErrorMessage('Schedule not found');
       return;
     }
 
     try {
+      console.log('[ExtensionCommands] Run Now selected schedule:', {
+        id: schedule.id,
+        name: schedule.name,
+        targetType: schedule.targetType,
+        executionMode: schedule.executionMode,
+        commandRef: schedule.commandRef,
+        workflowRef: schedule.workflowRef,
+        hasPromptTemplate: Boolean(schedule.promptTemplate)
+      });
       await this.schedulerService.runSchedule(schedule.id);
       vscode.window.showInformationMessage(`Running schedule "${schedule.name}"...`);
     } catch (error) {
@@ -169,11 +193,102 @@ export class ExtensionCommands {
     }
   }
 
+  private async pickSchedule(placeHolder: string): Promise<import('../types').Schedule | undefined> {
+    const schedules = await this.storageManager.loadSchedules();
+    if (schedules.length === 0) {
+      vscode.window.showInformationMessage('No schedules available');
+      return undefined;
+    }
+
+    const selected = await vscode.window.showQuickPick(schedules.map(schedule => ({
+      label: schedule.name,
+      description: schedule.targetType,
+      detail: schedule.workflowRef?.workflowId ?? schedule.commandRef?.commandId ?? schedule.promptTemplate ?? '',
+      schedule
+    })), { placeHolder });
+
+    return selected?.schedule;
+  }
+
+  private async viewWorkflowRuns(): Promise<void> {
+    const run = await this.pickWorkflowRun('Select a workflow run to inspect');
+    if (run) {
+      this.workflowRunDetailsView.show(run);
+    }
+  }
+
+  private async inspectWorkflowRun(item?: WorkflowRunTreeItem | WorkflowStepTreeItem): Promise<void> {
+    const run = this.getWorkflowRunFromItem(item) ?? await this.pickWorkflowRun('Select a workflow run to inspect');
+    if (run) {
+      this.workflowRunDetailsView.show(run);
+    }
+  }
+
+  private async openWorkflowRunFolder(item?: WorkflowRunTreeItem | WorkflowStepTreeItem): Promise<void> {
+    const run = this.getWorkflowRunFromItem(item) ?? await this.pickWorkflowRun('Select a workflow run');
+    if (!run) {
+      return;
+    }
+    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(run.runDir));
+  }
+
+  private async cancelWorkflowRun(item?: WorkflowRunTreeItem | WorkflowStepTreeItem): Promise<void> {
+    const run = this.getWorkflowRunFromItem(item) ?? await this.pickWorkflowRun('Select a workflow run to cancel');
+    if (!run) {
+      return;
+    }
+
+    const confirmed = await vscode.window.showWarningMessage(
+      `Cancel workflow run "${run.workflowName}"?`,
+      { modal: true },
+      'Cancel Workflow'
+    );
+    if (confirmed !== 'Cancel Workflow') {
+      return;
+    }
+
+    const cancelled = this.schedulerService.cancelWorkflowRun(run.id);
+    if (cancelled) {
+      this.treeView.refresh();
+      vscode.window.showInformationMessage(`Workflow run "${run.workflowName}" cancelled`);
+    } else {
+      vscode.window.showWarningMessage(`Workflow run "${run.workflowName}" is no longer cancellable`);
+    }
+  }
+
   private async reloadCommands(): Promise<void> {
     this.commandRegistry.reloadCommands();
     this.skillRegistry.reload();
     this.agentRegistry.reload();
-    vscode.window.showInformationMessage('Commands, skills, and agents reloaded');
+    this.workflowRegistry.reload();
+    vscode.window.showInformationMessage('Commands, skills, agents, and workflows reloaded');
+  }
+
+  private getWorkflowRunFromItem(item?: WorkflowRunTreeItem | WorkflowStepTreeItem): WorkflowRun | undefined {
+    if (item instanceof WorkflowRunTreeItem) {
+      return this.runningWorkflowRegistry.get(item.workflowRun.id) ?? item.workflowRun;
+    }
+    if (item instanceof WorkflowStepTreeItem) {
+      return this.runningWorkflowRegistry.get(item.workflowRun.id) ?? item.workflowRun;
+    }
+    return undefined;
+  }
+
+  private async pickWorkflowRun(placeHolder: string): Promise<WorkflowRun | undefined> {
+    const runs = this.runningWorkflowRegistry.listActive();
+    if (runs.length === 0) {
+      vscode.window.showInformationMessage('No active workflow runs');
+      return undefined;
+    }
+
+    const selected = await vscode.window.showQuickPick(runs.map(run => ({
+      label: run.workflowName,
+      description: run.status,
+      detail: `${new Date(run.startedAt).toLocaleString()} • ${run.id}`,
+      run
+    })), { placeHolder });
+
+    return selected?.run;
   }
 
   /**

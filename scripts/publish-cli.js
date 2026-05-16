@@ -7,8 +7,8 @@
  * Alternative to the Playwright automation.
  *
  * Usage:
- *   npm run publish:openvsx
- *   npm run publish:openvsx -- --token YOUR_TOKEN
+ *   pnpm run publish:openvsx
+ *   pnpm run publish:openvsx -- --token YOUR_TOKEN
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -71,7 +71,7 @@ async function main() {
         console.error(`❌ VSIX file not found: ${VSIX_PATH}`);
         console.log('📦 Building extension...\n');
         // Try to build it
-        child_process.execSync('npm run package', { stdio: 'inherit' });
+        child_process.execSync('pnpm run package', { stdio: 'inherit' });
         if (!fs.existsSync(VSIX_PATH)) {
             console.error('❌ Failed to create VSIX file');
             process.exit(1);
@@ -92,18 +92,10 @@ async function main() {
         console.error('❌ Access token required');
         process.exit(1);
     }
-    // Check if @openvsx/cli is installed
-    try {
-        child_process.execSync('npx @openvsx/cli --version', { stdio: 'ignore' });
-    }
-    catch {
-        console.log('📦 Installing @openvsx/cli...');
-        child_process.execSync('npm install -g @openvsx/cli', { stdio: 'inherit' });
-    }
     // Publish
     console.log(`\n📤 Publishing ${VSIX_FILE} to Open VSX...\n`);
     try {
-        child_process.execSync(`npx @openvsx/cli publish "${VSIX_PATH}" -p "${token}"`, { stdio: 'inherit' });
+        child_process.execSync(`pnpm dlx ovsx publish "${VSIX_PATH}" --pat "${token}"`, { stdio: 'inherit' });
         console.log('\n✅ Extension published successfully!');
         console.log(`\n📋 Next steps:`);
         console.log(`   1. Verify: https://open-vsx.org/extension/jolocity/${EXTENSION_NAME}`);

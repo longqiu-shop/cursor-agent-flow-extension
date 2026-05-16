@@ -6,8 +6,8 @@
  * Alternative to the Playwright automation.
  * 
  * Usage:
- *   npm run publish:openvsx
- *   npm run publish:openvsx -- --token YOUR_TOKEN
+ *   pnpm run publish:openvsx
+ *   pnpm run publish:openvsx -- --token YOUR_TOKEN
  */
 
 import * as child_process from 'child_process';
@@ -43,7 +43,7 @@ async function main() {
     console.log('📦 Building extension...\n');
     
     // Try to build it
-    child_process.execSync('npm run package', { stdio: 'inherit' });
+    child_process.execSync('pnpm run package', { stdio: 'inherit' });
     
     if (!fs.existsSync(VSIX_PATH)) {
       console.error('❌ Failed to create VSIX file');
@@ -77,7 +77,7 @@ async function main() {
   
   try {
     child_process.execSync(
-      `npx ovsx publish "${VSIX_PATH}" --pat "${token}"`,
+      `pnpm dlx ovsx publish "${VSIX_PATH}" --pat "${token}"`,
       { stdio: 'inherit' }
     );
     

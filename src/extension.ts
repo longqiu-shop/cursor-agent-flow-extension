@@ -8,6 +8,12 @@ import { SchedulerService } from './scheduler/schedulerService';
 import { CommandRegistry } from './commands/commandRegistry';
 import { SkillRegistry } from './commands/skillRegistry';
 import { AgentRegistry } from './commands/agentRegistry';
+import { WorkflowRegistry } from './workflow/workflowRegistry';
+import { RunningWorkflowRegistry } from './workflow/runningWorkflowRegistry';
+import { WorkflowSchemaRegistry } from './workflow/workflowSchemaRegistry';
+import { createWorkflowSchemaRegistry } from './workflow/workflowSchemas';
+import { registerIndexServingPrReviewSchemas } from './workflow/schemas/prReviewManifestSchema';
+import { CursorAgentSubmissionQueue } from './agent/cursorAgentSubmissionQueue';
 import { StorageManager } from './storage/storageManager';
 import { ScheduleTreeView } from './ui/scheduleTreeView';
 import { ExtensionCommands } from './commands/extensionCommands';
@@ -16,6 +22,10 @@ let schedulerService: SchedulerService | undefined;
 let commandRegistry: CommandRegistry | undefined;
 let skillRegistry: SkillRegistry | undefined;
 let agentRegistry: AgentRegistry | undefined;
+let workflowRegistry: WorkflowRegistry | undefined;
+let runningWorkflowRegistry: RunningWorkflowRegistry | undefined;
+let workflowSchemaRegistry: WorkflowSchemaRegistry | undefined;
+let submissionQueue: CursorAgentSubmissionQueue | undefined;
 let storageManager: StorageManager | undefined;
 let treeView: ScheduleTreeView | undefined;
 
@@ -27,13 +37,22 @@ export function activate(context: vscode.ExtensionContext) {
   commandRegistry = new CommandRegistry();
   skillRegistry = new SkillRegistry();
   agentRegistry = new AgentRegistry();
+  workflowSchemaRegistry = createWorkflowSchemaRegistry();
+  registerIndexServingPrReviewSchemas(workflowSchemaRegistry);
+  workflowRegistry = new WorkflowRegistry(workflowSchemaRegistry);
+  runningWorkflowRegistry = new RunningWorkflowRegistry();
+  submissionQueue = new CursorAgentSubmissionQueue();
   schedulerService = new SchedulerService(
     storageManager,
     commandRegistry,
     skillRegistry,
-    agentRegistry
+    agentRegistry,
+    workflowRegistry,
+    runningWorkflowRegistry,
+    submissionQueue,
+    workflowSchemaRegistry
   );
-  treeView = new ScheduleTreeView(storageManager, schedulerService);
+  treeView = new ScheduleTreeView(storageManager, schedulerService, runningWorkflowRegistry);
 
   // Register tree view
   const treeViewProvider = vscode.window.createTreeView('agentSchedules', {
@@ -48,6 +67,8 @@ export function activate(context: vscode.ExtensionContext) {
     commandRegistry,
     skillRegistry,
     agentRegistry,
+    workflowRegistry,
+    runningWorkflowRegistry,
     treeView
   );
   commands.register(context);
@@ -63,6 +84,7 @@ export function activate(context: vscode.ExtensionContext) {
     commandRegistry?.reloadCommands();
     skillRegistry?.reload();
     agentRegistry?.reload();
+    workflowRegistry?.reload();
     schedulerService?.reloadSchedules();
   });
 
@@ -87,6 +109,7 @@ export function activate(context: vscode.ExtensionContext) {
   commandRegistry.onDidChange(() => treeView?.refresh());
   skillRegistry?.onDidChange(() => treeView?.refresh());
   agentRegistry?.onDidChange(() => treeView?.refresh());
+  workflowRegistry?.onDidChange(() => treeView?.refresh());
 
   context.subscriptions.push(
     treeViewProvider,
@@ -94,6 +117,8 @@ export function activate(context: vscode.ExtensionContext) {
     commandRegistry,
     skillRegistry!,
     agentRegistry!,
+    workflowRegistry!,
+    runningWorkflowRegistry!,
     schedulesFileWatcher
   );
 }
@@ -103,4 +128,6 @@ export function deactivate() {
   commandRegistry?.dispose();
   skillRegistry?.dispose();
   agentRegistry?.dispose();
+  workflowRegistry?.dispose();
+  runningWorkflowRegistry?.dispose();
 }

@@ -2,18 +2,28 @@
  * Execution engine for running schedules (mock implementation)
  */
 
-import { Schedule, Command, RunRecord, TargetType } from '../types';
+import { Schedule, Command, RunRecord, WorkflowDefinition } from '../types';
 import { StorageManager } from '../storage/storageManager';
 import { CommandRegistry } from '../commands/commandRegistry';
 import { SkillRegistry } from '../commands/skillRegistry';
 import { AgentRegistry } from '../commands/agentRegistry';
+import { WorkflowRegistry } from '../workflow/workflowRegistry';
 import { CursorAgentRunner, AgentExecutionResult } from '../agent/cursorAgentRunner';
+import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue';
+import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
+import { WorkflowRunner } from '../workflow/workflowRunner';
+import { AgentStepExecutor } from '../workflow/agentStepExecutor';
+import { ReadJsonStepExecutor } from '../workflow/readJsonStepExecutor';
+import { FanoutStepExecutor } from '../workflow/fanoutStepExecutor';
+import { JoinStepExecutor } from '../workflow/joinStepExecutor';
+import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
 import * as vscode from 'vscode';
 
 interface RunningExecution {
   runId: string;
   schedule: Schedule;
   command?: Command;
+  workflow?: WorkflowDefinition;
   startTime: Date;
   timeout?: NodeJS.Timeout;
   cancelled: boolean;
@@ -25,30 +35,59 @@ export class ExecutionEngine {
   private commandRegistry: CommandRegistry;
   private skillRegistry: SkillRegistry;
   private agentRegistry: AgentRegistry;
+  private workflowRegistry: WorkflowRegistry;
   private agentRunner: CursorAgentRunner;
+  private workflowRunner: WorkflowRunner;
 
   constructor(
     storageManager: StorageManager,
     commandRegistry: CommandRegistry,
     skillRegistry: SkillRegistry,
-    agentRegistry: AgentRegistry
+    agentRegistry: AgentRegistry,
+    workflowRegistry: WorkflowRegistry,
+    runningWorkflowRegistry: RunningWorkflowRegistry,
+    submissionQueue: CursorAgentSubmissionQueue,
+    schemaRegistry: WorkflowSchemaRegistry
   ) {
     this.storageManager = storageManager;
     this.commandRegistry = commandRegistry;
     this.skillRegistry = skillRegistry;
     this.agentRegistry = agentRegistry;
+    this.workflowRegistry = workflowRegistry;
     this.agentRunner = new CursorAgentRunner();
+    this.workflowRunner = new WorkflowRunner(
+      runningWorkflowRegistry,
+      schemaRegistry,
+      [
+        new AgentStepExecutor(this.agentRunner, submissionQueue),
+        new ReadJsonStepExecutor(),
+        new FanoutStepExecutor(),
+        new JoinStepExecutor()
+      ]
+    );
+  }
+
+  private getEffectiveTargetType(schedule: Schedule): Schedule['targetType'] {
+    if (schedule.workflowRef) return 'workflow';
+    if (schedule.commandRef) return schedule.targetType;
+    return 'prompt';
   }
 
   private getContextCommand(schedule: Schedule): Command | undefined {
     if (!schedule.commandRef) return undefined;
     const { filePath, commandId } = schedule.commandRef;
-    const type = schedule.targetType;
+    const type = this.getEffectiveTargetType(schedule);
     if (type === 'command') return this.commandRegistry.getCommand(filePath, commandId);
     if (type === 'skill') return this.skillRegistry.get(filePath, commandId);
     // Agent; legacy 'subagent' from old schedules (create-subagent writes to .cursor/agents)
     if (type === 'agent' || (type as string) === 'subagent') return this.agentRegistry.get(filePath, commandId);
     return undefined;
+  }
+
+  private getWorkflow(schedule: Schedule): WorkflowDefinition | undefined {
+    if (!schedule.workflowRef) return undefined;
+    const { filePath, workflowId } = schedule.workflowRef;
+    return this.workflowRegistry.get(filePath, workflowId);
   }
 
   /**
@@ -57,14 +96,37 @@ export class ExecutionEngine {
   async execute(schedule: Schedule): Promise<string> {
     console.log(`[ExecutionEngine] Starting execution for schedule: ${schedule.name} (${schedule.id})`);
     console.log(`[ExecutionEngine] Target type: ${schedule.targetType}, Mode: ${schedule.executionMode}`);
+    console.log('[ExecutionEngine] Schedule execution snapshot:', {
+      id: schedule.id,
+      name: schedule.name,
+      targetType: schedule.targetType,
+      executionMode: schedule.executionMode,
+      commandRef: schedule.commandRef,
+      workflowRef: schedule.workflowRef,
+      hasPromptTemplate: Boolean(schedule.promptTemplate)
+    });
+    const targetType = this.getEffectiveTargetType(schedule);
+    if (targetType !== schedule.targetType) {
+      console.log(`[ExecutionEngine] Inferred target type ${targetType} from schedule references`);
+    }
     
     const runId = this.generateRunId();
     console.log(`[ExecutionEngine] Generated run ID: ${runId}`);
 
-    // Get context item (command, skill, agent, or subagent) if needed
+    // Get context item (command, skill, agent, workflow, or legacy subagent) if needed
     let command: Command | undefined;
-    if (schedule.targetType === 'prompt') {
+    let workflow: WorkflowDefinition | undefined;
+    if (targetType === 'prompt') {
       console.log(`[ExecutionEngine] Using inline prompt: ${schedule.promptTemplate?.substring(0, 50)}...`);
+    } else if (targetType === 'workflow') {
+      if (schedule.executionMode === 'cloud') {
+        throw new Error('Workflow execution is only supported in local IDE mode');
+      }
+      workflow = this.getWorkflow(schedule);
+      if (!workflow) {
+        throw new Error(`Workflow not found: ${schedule.workflowRef?.workflowId ?? '<missing>'} in ${schedule.workflowRef?.filePath ?? '<missing>'}`);
+      }
+      console.log(`[ExecutionEngine] Found workflow: ${workflow.id}`);
     } else if (schedule.commandRef) {
       command = this.getContextCommand(schedule);
       if (!command) {
@@ -85,8 +147,9 @@ export class ExecutionEngine {
     const runRecord: RunRecord = {
       scheduleId: schedule.id,
       scheduleName: schedule.name,
-      targetType: schedule.targetType,
+      targetType,
       commandId: command?.id,
+      workflowId: workflow?.id,
       promptHash: schedule.promptTemplate ? this.storageManager.hashPrompt(schedule.promptTemplate) : undefined,
       startedAt: new Date().toISOString(),
       status: 'running'
@@ -97,6 +160,7 @@ export class ExecutionEngine {
       runId,
       schedule,
       command,
+      workflow,
       startTime: new Date(),
       cancelled: false
     };
@@ -104,8 +168,10 @@ export class ExecutionEngine {
     this.runningExecutions.set(runId, execution);
 
     // Show immediate feedback
-    const message = schedule.targetType === 'prompt' 
+    const message = targetType === 'prompt'
       ? `Starting execution: "${schedule.name}" (prompt: ${schedule.promptTemplate?.substring(0, 30)}...)`
+      : targetType === 'workflow'
+        ? `Starting execution: "${schedule.name}" (workflow: ${workflow?.id})`
       : `Starting execution: "${schedule.name}" (command: ${command?.id})`;
     
     console.log(`[ExecutionEngine] ${message}`);
@@ -148,6 +214,7 @@ export class ExecutionEngine {
    */
   private async executeLocal(execution: RunningExecution, runRecord: RunRecord): Promise<void> {
     const { schedule, command } = execution;
+    const targetType = this.getEffectiveTargetType(schedule);
     
     try {
       console.log(`[ExecutionEngine] Starting real agent execution for ${schedule.name}`);
@@ -163,9 +230,21 @@ export class ExecutionEngine {
 
       // Prepare prompt
       let prompt = '';
-      if (schedule.targetType === 'prompt') {
+      if (targetType === 'prompt') {
         // Substitute variables in prompt template
         prompt = this.agentRunner.substituteVariables(schedule.promptTemplate ?? '');
+      } else if (targetType === 'workflow') {
+        if (!execution.workflow) {
+          throw new Error('No workflow provided');
+        }
+        const workflowRun = await this.workflowRunner.run(execution.workflow, { scheduleId: schedule.id });
+        await this.handleExecutionResult(execution, runRecord, {
+          success: workflowRun.status === 'succeeded',
+          output: `Workflow ${workflowRun.status}`,
+          error: workflowRun.error ?? (workflowRun.status === 'succeeded' ? undefined : `Workflow ${workflowRun.status}`),
+          filesChanged: 0
+        });
+        return;
       } else if (command) {
         // Execute command
         const result = await this.agentRunner.executeCommand(schedule, command);
@@ -311,6 +390,7 @@ export class ExecutionEngine {
       scheduleName: execution.schedule.name,
       targetType: execution.schedule.targetType,
       commandId: execution.command?.id,
+      workflowId: execution.workflow?.id,
       startedAt: execution.startTime.toISOString(),
       finishedAt: new Date().toISOString(),
       status: 'failure',
@@ -322,6 +402,10 @@ export class ExecutionEngine {
     this.runningExecutions.delete(runId);
 
     return true;
+  }
+
+  cancelWorkflowRun(runId: string): boolean {
+    return this.workflowRunner.cancel(runId);
   }
 
   /**

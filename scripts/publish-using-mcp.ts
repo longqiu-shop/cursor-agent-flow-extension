@@ -21,7 +21,7 @@ async function publishWithMCPTools() {
 
   // Check if VSIX exists
   if (!fs.existsSync(VSIX_PATH)) {
-    throw new Error(`VSIX file not found: ${VSIX_PATH}\nRun 'npm run package' first.`);
+    throw new Error(`VSIX file not found: ${VSIX_PATH}\nRun 'pnpm run package' first.`);
   }
 
   const steps = [
@@ -115,7 +115,7 @@ async function publishWithMCPTools() {
   console.log('\n⚠️  Note: This script shows the MCP tool calls that would be made.');
   console.log('   To execute these, use the Playwright MCP server tools directly.');
   console.log('\n💡 You can run these steps manually using the MCP tools, or');
-  console.log('   use the automated script: npm run publish:mcp');
+  console.log('   use the automated script: pnpm run publish:mcp');
 }
 
 // Export for use

@@ -1,0 +1,75 @@
+{
+  "id": "index-serving-pr-review",
+  "name": "Index-Serving PR Review Workflow",
+  "description": "Scan for index-serving PR review requests, fan out per-PR review agents, and join the review artifacts.",
+  "version": 1,
+  "defaults": {
+    "timeoutSeconds": 1800,
+    "onStepFailure": "stop",
+    "fanoutConcurrency": "sequential"
+  },
+  "steps": [
+    {
+      "id": "scan-prs",
+      "type": "agent",
+      "name": "Scan Slack for index-serving PRs",
+      "input": {
+        "title": "Scan index-serving PR review requests",
+        "freshChat": true,
+        "submitMode": "worktree",
+        "prompt": "Use the Slack tools to scan recent Slack messages available to me across my workspace from the start of today in my local timezone up to now.\n\nRead relevant messages and thread replies. Find every GitHub pull request mentioned in those messages that requires my attention to review. A PR requires my attention if the message or thread tags me directly, mentions my name, asks me to review, asks for my approval, or otherwise implies I am the intended reviewer.\n\nMy Slack display name or user ID is: U09F7PGF4AJ.\n\nKeep only PRs that belong to the index-serving repository.\n\nWrite a JSON object with this shape:\n{\n  \"prs\": [\n    {\n      \"number\": 123,\n      \"title\": \"PR title\",\n      \"url\": \"https://github.com/<owner>/index-serving/pull/123\",\n      \"author\": \"author if known\",\n      \"channelName\": \"channel if known\",\n      \"slackPermalink\": \"message permalink if known\",\n      \"reason\": \"why this needs my review\",\n      \"threadStatus\": \"notable status from the thread if any\"\n    }\n  ]\n}\n\nIf no index-serving PRs need review, write {\"prs\":[]}.\nDo not modify source code."
+      },
+      "output": {
+        "path": "scan/pr-manifest.json",
+        "format": "json",
+        "schema": "indexServing.prReviewManifest"
+      }
+    },
+    {
+      "id": "read-prs",
+      "type": "readJson",
+      "name": "Read PR manifest",
+      "input": {
+        "path": "scan/pr-manifest.json",
+        "schema": "indexServing.prReviewManifest",
+        "select": "prs"
+      }
+    },
+    {
+      "id": "review-prs",
+      "type": "fanout",
+      "name": "Review each PR",
+      "input": {
+        "itemsFrom": "steps.read-prs.output",
+        "step": {
+          "id": "review-pr",
+          "type": "agent",
+          "name": "Review PR",
+          "input": {
+            "title": "Review index-serving PR #{{item.number}}",
+            "freshChat": true,
+            "submitMode": "worktree",
+            "prompt": "Review this GitHub pull request from the index-serving repository.\n\nPR #{{item.number}}\nURL: {{item.url}}\nReason review is needed: {{item.reason}}\n\nFocus on correctness, regressions, missing tests, and operational risk. Write a concise Markdown review artifact with findings first, ordered by severity. If there are no findings, say that clearly and mention any residual test gaps.\n\nDo not post comments to GitHub or Slack. Do not modify source code."
+          },
+          "output": {
+            "path": "reviews/pr-{{item.number}}.md",
+            "format": "markdown"
+          }
+        }
+      }
+    },
+    {
+      "id": "join-reviews",
+      "type": "join",
+      "name": "Join review artifacts",
+      "input": {
+        "from": "reviews/*.md",
+        "outputPath": "summary/index-serving-pr-reviews.md"
+      },
+      "output": {
+        "path": "summary/index-serving-pr-reviews.md",
+        "format": "markdown"
+      }
+    }
+  ]
+}

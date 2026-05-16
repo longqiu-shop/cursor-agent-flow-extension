@@ -3,7 +3,7 @@
  * Playwright script to automate publishing to Open VSX
  *
  * Usage:
- *   npx playwright test scripts/publish-to-openvsx.ts --headed
+ *   pnpm exec playwright test scripts/publish-to-openvsx.ts --headed
  *
  * Note: Some steps (like GitHub OAuth) may require manual interaction
  */
@@ -52,7 +52,7 @@ test_1.test.describe('Publish to Open VSX', () => {
     (0, test_1.test)('Publish extension to Open VSX', async ({ page }) => {
         // Check if VSIX file exists
         if (!fs.existsSync(VSIX_PATH)) {
-            throw new Error(`VSIX file not found: ${VSIX_PATH}\nRun 'npm run package' first.`);
+            throw new Error(`VSIX file not found: ${VSIX_PATH}\nRun 'pnpm run package' first.`);
         }
         console.log(`📦 Publishing ${VSIX_FILE} to Open VSX...`);
         // Step 1: Navigate to Open VSX

@@ -7,6 +7,7 @@ import { Schedule, TargetType } from '../types';
 import { CommandRegistry } from '../commands/commandRegistry';
 import { SkillRegistry } from '../commands/skillRegistry';
 import { AgentRegistry } from '../commands/agentRegistry';
+import { WorkflowRegistry } from '../workflow/workflowRegistry';
 import { SchedulerService } from '../scheduler/schedulerService';
 import { StorageManager } from '../storage/storageManager';
 import { validateCronExpression, getCronDescription, getNextRunTimeFormatted } from '../utils/cronUtils';
@@ -22,6 +23,7 @@ export class ScheduleEditorWebview {
   private commandRegistry: CommandRegistry;
   private skillRegistry: SkillRegistry;
   private agentRegistry: AgentRegistry;
+  private workflowRegistry: WorkflowRegistry;
   private schedulerService: SchedulerService;
   private storageManager: StorageManager;
   private schedule: Schedule | undefined;
@@ -31,12 +33,14 @@ export class ScheduleEditorWebview {
     commandRegistry: CommandRegistry,
     skillRegistry: SkillRegistry,
     agentRegistry: AgentRegistry,
+    workflowRegistry: WorkflowRegistry,
     schedulerService: SchedulerService,
     storageManager: StorageManager
   ) {
     this.commandRegistry = commandRegistry;
     this.skillRegistry = skillRegistry;
     this.agentRegistry = agentRegistry;
+    this.workflowRegistry = workflowRegistry;
     this.schedulerService = schedulerService;
     this.storageManager = storageManager;
   }
@@ -163,6 +167,14 @@ export class ScheduleEditorWebview {
    * Get context items (commands, skills, or agents) for webview by target type
    */
   private getContextData(targetType: TargetType): Array<{ filePath: string; commandId: string; description?: string }> {
+    if (targetType === 'workflow') {
+      return this.workflowRegistry.getAll().map(workflow => ({
+        filePath: workflow.filePath,
+        commandId: workflow.id,
+        description: workflow.description
+      }));
+    }
+
     const items =
       targetType === 'command' ? this.commandRegistry.getAllCommands() :
       targetType === 'skill' ? this.skillRegistry.getAll() :
@@ -180,7 +192,8 @@ export class ScheduleEditorWebview {
       prompt: [],
       command: this.getContextData('command'),
       skill: this.getContextData('skill'),
-      agent: this.getContextData('agent')
+      agent: this.getContextData('agent'),
+      workflow: this.getContextData('workflow')
     };
   }
 
@@ -238,6 +251,15 @@ export class ScheduleEditorWebview {
         throw new Error('Context reference is required when target type is command, skill, or agent');
       }
 
+      if (data.targetType === 'workflow') {
+        if (!data.workflowRef) {
+          throw new Error('Workflow reference is required when target type is "workflow"');
+        }
+        if (data.executionMode === 'cloud') {
+          throw new Error('Workflow schedules are only supported in Local IDE mode');
+        }
+      }
+
       // Ensure id exists (for new schedules, use the one from this.schedule)
       const scheduleId = this.schedule.id || (data as Schedule).id;
       if (!scheduleId) {
@@ -253,6 +275,7 @@ export class ScheduleEditorWebview {
         targetType: data.targetType,
         promptTemplate: data.promptTemplate,
         commandRef: data.commandRef,
+        workflowRef: data.workflowRef,
         executionMode: data.executionMode,
         workspaceFolder: data.workspaceFolder || this.schedule.workspaceFolder,
         outputConfig: data.outputConfig,
@@ -520,6 +543,7 @@ export class ScheduleEditorWebview {
                 <option value="command">Cursor Command</option>
                 <option value="skill">Skill</option>
                 <option value="agent">Agent</option>
+                <option value="workflow">Workflow</option>
             </select>
         </div>
 
@@ -592,7 +616,7 @@ export class ScheduleEditorWebview {
 
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-        let contextByType = { prompt: [], command: [], skill: [], agent: [] };
+        let contextByType = { prompt: [], command: [], skill: [], agent: [], workflow: [] };
         let schedule = null;
 
         // Load initial data
@@ -649,10 +673,11 @@ export class ScheduleEditorWebview {
             updateOutputType();
             loadContext();
             
-            if (schedule.commandRef) {
-                document.getElementById('commandFile').value = schedule.commandRef.filePath;
+            const contextRef = schedule.targetType === 'workflow' ? schedule.workflowRef : schedule.commandRef;
+            if (contextRef) {
+                document.getElementById('commandFile').value = contextRef.filePath;
                 updateCommandIds();
-                document.getElementById('commandId').value = schedule.commandRef.commandId;
+                document.getElementById('commandId').value = contextRef.commandId || contextRef.workflowId;
             }
             
             // Initialize cron builder after loading schedule
@@ -676,10 +701,11 @@ export class ScheduleEditorWebview {
                 commandFileSelect.appendChild(option);
             });
             
-            if (schedule?.commandRef && document.getElementById('targetType').value === schedule.targetType) {
-                commandFileSelect.value = schedule.commandRef.filePath;
+            const contextRef = schedule?.targetType === 'workflow' ? schedule?.workflowRef : schedule?.commandRef;
+            if (contextRef && document.getElementById('targetType').value === schedule.targetType) {
+                commandFileSelect.value = contextRef.filePath;
                 updateCommandIds();
-                document.getElementById('commandId').value = schedule.commandRef.commandId || '';
+                document.getElementById('commandId').value = contextRef.commandId || contextRef.workflowId || '';
             }
         }
 
@@ -703,7 +729,7 @@ export class ScheduleEditorWebview {
         function updateTargetType() {
             const targetType = document.getElementById('targetType').value;
             document.getElementById('promptSection').style.display = targetType === 'prompt' ? 'block' : 'none';
-            const showContext = ['command', 'skill', 'agent'].includes(targetType);
+            const showContext = ['command', 'skill', 'agent', 'workflow'].includes(targetType);
             document.getElementById('contextSection').style.display = showContext ? 'block' : 'none';
             if (showContext) loadContext();
         }
@@ -804,7 +830,11 @@ export class ScheduleEditorWebview {
                 const filePath = document.getElementById('commandFile').value;
                 const commandId = document.getElementById('commandId').value;
                 if (filePath && commandId) {
-                    data.commandRef = { filePath, commandId };
+                    if (data.targetType === 'workflow') {
+                        data.workflowRef = { filePath, workflowId: commandId };
+                    } else {
+                        data.commandRef = { filePath, commandId };
+                    }
                 }
             }
 
@@ -837,7 +867,11 @@ export class ScheduleEditorWebview {
                 const filePath = document.getElementById('commandFile').value;
                 const commandId = document.getElementById('commandId').value;
                 if (filePath && commandId) {
-                    data.commandRef = { filePath, commandId };
+                    if (data.targetType === 'workflow') {
+                        data.workflowRef = { filePath, workflowId: commandId };
+                    } else {
+                        data.commandRef = { filePath, commandId };
+                    }
                 }
             }
 
