@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "indexServing.prReviewManifest",
+  "type": "object",
+  "required": ["prs"],
+  "additionalProperties": false,
+  "properties": {
+    "prs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["number", "repo", "url", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "repo": {
+            "type": "string",
+            "enum": ["world", "index-serving"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^https://github\\.com/[^/\\s]+/[^/\\s]+/pull/[0-9]+(?:[/?#].*)?$"
+          },
+          "author": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "slackPermalink": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "threadStatus": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

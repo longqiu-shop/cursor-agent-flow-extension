@@ -1,0 +1,231 @@
+{
+  "name": "cursor-agent-scheduler",
+  "displayName": "Cursor Agent Scheduler",
+  "description": "Schedule and run Cursor AI agents automatically using cron schedules",
+  "version": "1.0.1",
+  "publisher": "jolocity",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jolocity/cursor-agent-scheduler.git"
+  },
+  "homepage": "https://github.com/jolocity/cursor-agent-scheduler#readme",
+  "bugs": {
+    "url": "https://github.com/jolocity/cursor-agent-scheduler/issues"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "icon": "icon.png",
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "cursor",
+    "ai",
+    "agent",
+    "scheduler",
+    "automation",
+    "cron"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "packageManager": "pnpm@10.28.0",
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentSchedules.add",
+        "title": "Agent Schedules: Add Schedule",
+        "icon": "$(add)"
+      },
+      {
+        "command": "agentSchedules.runNow",
+        "title": "Agent Schedules: Run Now",
+        "icon": "$(play)"
+      },
+      {
+        "command": "agentSchedules.edit",
+        "title": "Agent Schedules: Edit"
+      },
+      {
+        "command": "agentSchedules.enable",
+        "title": "Agent Schedules: Enable"
+      },
+      {
+        "command": "agentSchedules.disable",
+        "title": "Agent Schedules: Disable"
+      },
+      {
+        "command": "agentSchedules.viewRuns",
+        "title": "Agent Schedules: View Run History"
+      },
+      {
+        "command": "agentSchedules.viewWorkflowRuns",
+        "title": "Agent Schedules: View Active Workflow Runs",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "agentSchedules.inspectWorkflowRun",
+        "title": "Agent Schedules: Inspect Workflow Run"
+      },
+      {
+        "command": "agentSchedules.openWorkflowRunFolder",
+        "title": "Agent Schedules: Open Workflow Run Folder"
+      },
+      {
+        "command": "agentSchedules.cancelWorkflowRun",
+        "title": "Agent Schedules: Cancel Workflow Run"
+      },
+      {
+        "command": "agentSchedules.reloadCommands",
+        "title": "Agent Schedules: Reload Commands",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "agentSchedules.testExecution",
+        "title": "Agent Schedules: Test Execution"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "agentSchedules",
+          "name": "Agent Schedules",
+          "when": "true"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentSchedules.add",
+          "when": "view == agentSchedules",
+          "group": "navigation"
+        },
+        {
+          "command": "agentSchedules.runNow",
+          "when": "view == agentSchedules",
+          "group": "navigation"
+        },
+        {
+          "command": "agentSchedules.viewWorkflowRuns",
+          "when": "view == agentSchedules",
+          "group": "navigation"
+        },
+        {
+          "command": "agentSchedules.reloadCommands",
+          "when": "view == agentSchedules",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "agentSchedules.runNow",
+          "when": "view == agentSchedules && viewItem == schedule-enabled",
+          "group": "inline"
+        },
+        {
+          "command": "agentSchedules.runNow",
+          "when": "view == agentSchedules && viewItem == schedule-disabled",
+          "group": "inline"
+        },
+        {
+          "command": "agentSchedules.edit",
+          "when": "view == agentSchedules && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
+          "group": "1_actions"
+        },
+        {
+          "command": "agentSchedules.enable",
+          "when": "view == agentSchedules && viewItem == schedule-disabled",
+          "group": "2_toggle"
+        },
+        {
+          "command": "agentSchedules.disable",
+          "when": "view == agentSchedules && viewItem == schedule-enabled",
+          "group": "2_toggle"
+        },
+        {
+          "command": "agentSchedules.viewRuns",
+          "when": "view == agentSchedules && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
+          "group": "3_history"
+        },
+        {
+          "command": "agentSchedules.inspectWorkflowRun",
+          "when": "view == agentSchedules && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "group": "1_workflow"
+        },
+        {
+          "command": "agentSchedules.openWorkflowRunFolder",
+          "when": "view == agentSchedules && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "group": "1_workflow"
+        },
+        {
+          "command": "agentSchedules.cancelWorkflowRun",
+          "when": "view == agentSchedules && viewItem == workflow-run-cancellable",
+          "group": "2_workflow"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Agent Schedules",
+      "properties": {
+        "agentSchedules.additionalCommandDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional directories to search for command files (.md, .json, .yaml). Supports absolute paths, relative paths, and ~ for home directory."
+        },
+        "agentSchedules.additionalSkillsDirectories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional directories to search for skills (subdirs with SKILL.md or .md)."
+        },
+        "agentSchedules.additionalAgentsDirectories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional directories to search for agent/subagent definitions (.md, .json, .yaml). create-subagent skill writes to .cursor/agents."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run compile",
+    "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "pnpm run clean && pnpm run compile && pnpm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node --test out/workflow/*.test.js",
+    "package": "vsce package",
+    "prepackage": "pnpm run compile",
+    "publish:openvsx": "ts-node scripts/publish-cli.ts",
+    "publish:automate": "playwright test scripts/publish-to-openvsx.ts",
+    "publish:mcp": "ts-node scripts/publish-with-mcp.ts"
+  },
+  "dependencies": {
+    "cron-parser": "^4.9.0",
+    "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.19.30",
+    "@types/uuid": "^9.0.8",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.0.0",
+    "playwright": "^1.57.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}

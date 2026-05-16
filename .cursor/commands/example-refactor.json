@@ -1,0 +1,24 @@
+{
+  "id": "refactor-legacy-code",
+  "description": "Refactor legacy code patterns to modern best practices",
+  "instructions": "Analyze the codebase for legacy patterns and refactor them:\n\n1. Replace var with let/const\n2. Convert function declarations to arrow functions where appropriate\n3. Update deprecated APIs\n4. Improve error handling\n5. Add type annotations where missing\n\nOnly make changes that improve code quality without changing functionality.",
+  "sections": {
+    "role": "Senior Software Engineer",
+    "tasks": "Refactor legacy code to modern patterns",
+    "rules": [
+      "Maintain existing functionality",
+      "Follow existing code style",
+      "Add comments for complex changes",
+      "Run tests after refactoring"
+    ],
+    "context": "This is a legacy codebase being modernized incrementally"
+  },
+  "constraints": {
+    "maxRuntime": 600,
+    "maxFilesChanged": 50,
+    "allowedPaths": [
+      "src/**",
+      "lib/**"
+    ]
+  }
+}

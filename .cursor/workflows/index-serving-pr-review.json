@@ -1,0 +1,75 @@
+{
+  "id": "index-serving-pr-review",
+  "name": "World and Index-Serving PR Review Workflow",
+  "description": "Scan for world and index-serving PR review requests, fan out per-PR review agents, and join the review artifacts.",
+  "version": 1,
+  "defaults": {
+    "timeoutSeconds": 1800,
+    "onStepFailure": "stop",
+    "fanoutConcurrency": "sequential"
+  },
+  "steps": [
+    {
+      "id": "scan-prs",
+      "type": "agent",
+      "name": "Scan Slack for world and index-serving PRs",
+      "input": {
+        "title": "Scan world and index-serving PR review requests",
+        "freshChat": true,
+        "submitMode": "worktree",
+        "promptFile": "index-serving-pr-review.scan-prs.md"
+      },
+      "output": {
+        "path": "scan/pr-manifest.json",
+        "format": "json",
+        "schema": "indexServing.prReviewManifest"
+      }
+    },
+    {
+      "id": "read-prs",
+      "type": "readJson",
+      "name": "Read PR manifest",
+      "input": {
+        "path": "scan/pr-manifest.json",
+        "schema": "indexServing.prReviewManifest",
+        "select": "prs"
+      }
+    },
+    {
+      "id": "review-prs",
+      "type": "fanout",
+      "name": "Review each PR",
+      "input": {
+        "itemsFrom": "steps.read-prs.output",
+        "step": {
+          "id": "review-pr",
+          "type": "agent",
+          "name": "Review PR",
+          "input": {
+            "title": "Review {{item.repo}} PR #{{item.number}}",
+            "freshChat": true,
+            "submitMode": "worktree",
+            "prompt": "Review this GitHub pull request from the {{item.repo}} repository.\n\nPR #{{item.number}}\nURL: {{item.url}}\nReason review is needed: {{item.reason}}\n\nFocus on correctness, regressions, missing tests, and operational risk. Write a concise Markdown review artifact with findings first, ordered by severity. If there are no findings, say that clearly and mention any residual test gaps.\n\nDo not post comments to GitHub or Slack. Do not modify source code."
+          },
+          "output": {
+            "path": "reviews/{{item.repo}}-pr-{{item.number}}.md",
+            "format": "markdown"
+          }
+        }
+      }
+    },
+    {
+      "id": "join-reviews",
+      "type": "join",
+      "name": "Join review artifacts",
+      "input": {
+        "from": "reviews/*.md",
+        "outputPath": "summary/world-index-serving-pr-reviews.md"
+      },
+      "output": {
+        "path": "summary/world-index-serving-pr-reviews.md",
+        "format": "markdown"
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+id: fix-dependencies
+description: Fix dependency issues and update packages
+instructions: |
+  Review package.json and pnpm-lock.yaml for:
+  
+  1. Outdated packages with known security vulnerabilities
+  2. Packages that can be updated to latest compatible versions
+  3. Unused dependencies that can be removed
+  4. Duplicate dependencies
+  
+  Update packages safely, ensuring:
+  - All tests pass
+  - No breaking changes to the API
+  - Compatibility with Node.js version requirements
+  
+  Generate a summary of changes made.
+sections:
+  role: DevOps Engineer
+  tasks: Update and fix dependency issues
+  rules:
+    - Always test after updates
+    - Maintain backward compatibility
+    - Document breaking changes
+  context: Production codebase requiring careful dependency management
+constraints:
+  maxRuntime: 300
+  maxFilesChanged: 2
