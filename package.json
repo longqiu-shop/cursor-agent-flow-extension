@@ -69,6 +69,10 @@
         "icon": "$(list-tree)"
       },
       {
+        "command": "agentSchedules.startAgenticWorkflow",
+        "title": "Agent Schedules: Start Agentic Workflow"
+      },
+      {
         "command": "agentSchedules.inspectWorkflowRun",
         "title": "Agent Schedules: Inspect Workflow Run"
       },
@@ -113,6 +117,11 @@
         },
         {
           "command": "agentSchedules.viewWorkflowRuns",
+          "when": "view == agentSchedules",
+          "group": "navigation"
+        },
+        {
+          "command": "agentSchedules.startAgenticWorkflow",
           "when": "view == agentSchedules",
           "group": "navigation"
         },
