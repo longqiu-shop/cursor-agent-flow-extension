@@ -54,6 +54,12 @@ interface ActiveWorkflowRun {
   cancellation: WorkflowCancellationController;
 }
 
+interface WorkflowExecutionState {
+  run: WorkflowRun;
+  cancellation: WorkflowCancellationController;
+  context: WorkflowExecutionContext;
+}
+
 const TERMINAL_WORKFLOW_STATUSES = new Set<WorkflowStatus>([
   'succeeded',
   'failed',
@@ -76,7 +82,17 @@ export class WorkflowRunner {
     }
   }
 
+  start(workflow: WorkflowDefinition, options: WorkflowRunOptions = {}): WorkflowRun {
+    const state = this.createExecutionState(workflow, options);
+    this.executeRun(state).catch(error => this.failStartedRun(state.run, error));
+    return state.run;
+  }
+
   async run(workflow: WorkflowDefinition, options: WorkflowRunOptions = {}): Promise<WorkflowRun> {
+    return this.executeRun(this.createExecutionState(workflow, options));
+  }
+
+  private createExecutionState(workflow: WorkflowDefinition, options: WorkflowRunOptions): WorkflowExecutionState {
     const run = this.createInitialRun(workflow, options);
     const cancellation = new WorkflowCancellationController();
     const artifactStore = new ArtifactStore(run.runDir, this.schemaRegistry);
@@ -103,6 +119,12 @@ export class WorkflowRunner {
 
     this.activeRuns.set(run.id, { run, cancellation });
     this.runningWorkflowRegistry.add(run);
+    return { run, cancellation, context };
+  }
+
+  private async executeRun(state: WorkflowExecutionState): Promise<WorkflowRun> {
+    const { run, cancellation, context } = state;
+    const workflow = context.workflow;
 
     try {
       run.status = 'running';
@@ -144,6 +166,14 @@ export class WorkflowRunner {
       cancellation.dispose();
       this.activeRuns.delete(run.id);
     }
+  }
+
+  private failStartedRun(run: WorkflowRun, error: unknown): void {
+    run.status = 'failed';
+    run.error = error instanceof Error ? error.message : String(error);
+    run.finishedAt = new Date().toISOString();
+    run.currentStepId = undefined;
+    this.persist(run);
   }
 
   cancel(runId: string): boolean {

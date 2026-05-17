@@ -73,6 +73,10 @@
         "title": "Cursor Agent Flow: Start Agentic Workflow"
       },
       {
+        "command": "cursorAgentFlow.startAgenticWorkflowFromPlanDocument",
+        "title": "Cursor Agent Flow: Start Agentic Workflow From Plan Document"
+      },
+      {
         "command": "cursorAgentFlow.inspectWorkflowRun",
         "title": "Cursor Agent Flow: Inspect Workflow Run"
       },
@@ -126,6 +130,11 @@
         },
         {
           "command": "cursorAgentFlow.startAgenticWorkflow",
+          "when": "view == cursorAgentFlow",
+          "group": "navigation"
+        },
+        {
+          "command": "cursorAgentFlow.startAgenticWorkflowFromPlanDocument",
           "when": "view == cursorAgentFlow",
           "group": "navigation"
         },

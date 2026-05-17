@@ -14,6 +14,8 @@ import { RunningWorkflowRegistry } from './workflow/runningWorkflowRegistry';
 import { WorkflowSchemaRegistry } from './workflow/workflowSchemaRegistry';
 import { createWorkflowSchemaRegistry } from './workflow/workflowSchemas';
 import { CursorAgentSubmissionQueue } from './agent/cursorAgentSubmissionQueue';
+import { AgenticWorkflowService } from './workflow/agenticWorkflowService';
+import { WorkflowRunnerFactory } from './workflow/workflowRunnerFactory';
 import { StorageManager } from './storage/storageManager';
 import { ScheduleTreeView } from './ui/scheduleTreeView';
 import { ExtensionCommands } from './commands/extensionCommands';
@@ -33,6 +35,8 @@ let workflowSchemaRegistry: WorkflowSchemaRegistry | undefined;
 let submissionQueue: CursorAgentSubmissionQueue | undefined;
 let storageManager: StorageManager | undefined;
 let treeView: ScheduleTreeView | undefined;
+let workflowRunnerFactory: WorkflowRunnerFactory | undefined;
+let agenticWorkflowService: AgenticWorkflowService | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('Cursor Agent Scheduler extension is now active');
@@ -51,6 +55,15 @@ export function activate(context: vscode.ExtensionContext) {
   });
   runningWorkflowRegistry = new RunningWorkflowRegistry();
   submissionQueue = new CursorAgentSubmissionQueue();
+  workflowRunnerFactory = new WorkflowRunnerFactory(
+    commandRegistry,
+    skillRegistry,
+    agentRegistry,
+    runningWorkflowRegistry,
+    submissionQueue,
+    workflowSchemaRegistry
+  );
+  agenticWorkflowService = new AgenticWorkflowService(workflowRegistry, workflowRunnerFactory);
   schedulerService = new SchedulerService(
     storageManager,
     commandRegistry,
@@ -58,8 +71,7 @@ export function activate(context: vscode.ExtensionContext) {
     agentRegistry,
     workflowRegistry,
     runningWorkflowRegistry,
-    submissionQueue,
-    workflowSchemaRegistry
+    workflowRunnerFactory
   );
   treeView = new ScheduleTreeView(storageManager, schedulerService, runningWorkflowRegistry);
 
@@ -78,11 +90,26 @@ export function activate(context: vscode.ExtensionContext) {
     agentRegistry,
     workflowRegistry,
     runningWorkflowRegistry,
+    agenticWorkflowService,
     treeView
   );
   commands.register(context);
 
-  const agentChatTriggerService = new AgentChatTriggerService((goal, requestId) => commands.startAgenticWorkflowFromGoal(goal, requestId));
+  const agentChatTriggerService = new AgentChatTriggerService(request => {
+    if (request.type === 'startAgenticWorkflow') {
+      return agenticWorkflowService!.startFromGoal({
+        goal: request.goal,
+        requestId: request.requestId,
+        source: 'agentChat'
+      });
+    }
+    return agenticWorkflowService!.startFromPlanDocument({
+      planPath: request.planPath,
+      goal: request.goal,
+      requestId: request.requestId,
+      source: 'agentChat'
+    });
+  });
   const agentChatTriggerTimers = new Map<string, NodeJS.Timeout>();
   const queueAgentChatTrigger = (uri: vscode.Uri) => {
     if (uri.fsPath.endsWith('.result.json')) {

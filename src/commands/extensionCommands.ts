@@ -10,7 +10,8 @@ import { SkillRegistry } from './skillRegistry';
 import { AgentRegistry } from './agentRegistry';
 import { WorkflowRegistry } from '../workflow/workflowRegistry';
 import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
-import { Schedule, WorkflowRun } from '../types';
+import { WorkflowRun } from '../types';
+import { AGENTIC_BOOTSTRAP_WORKFLOW_ID, AgenticWorkflowService } from '../workflow/agenticWorkflowService';
 import { ScheduleTreeView, ScheduleTreeItem, WorkflowRunTreeItem, WorkflowStepTreeItem } from '../ui/scheduleTreeView';
 import { ScheduleEditorWebview } from '../ui/scheduleEditorWebview';
 import { RunHistoryView } from '../ui/runHistoryView';
@@ -20,9 +21,6 @@ import {
   orderWorkflowRunsForTree
 } from '../ui/workflowRunVisibility';
 import { CursorAgentExecutor } from '../agent/keyboardAgent';
-
-const AGENTIC_BOOTSTRAP_WORKFLOW_FILE = '.cursor/workflows/agentic-workflow-bootstrap.json';
-const AGENTIC_BOOTSTRAP_WORKFLOW_ID = 'agentic-workflow-bootstrap';
 
 export class ExtensionCommands {
   private scheduleEditor: ScheduleEditorWebview;
@@ -38,6 +36,7 @@ export class ExtensionCommands {
     private agentRegistry: AgentRegistry,
     private workflowRegistry: WorkflowRegistry,
     private runningWorkflowRegistry: RunningWorkflowRegistry,
+    private agenticWorkflowService: AgenticWorkflowService,
     private treeView: ScheduleTreeView
   ) {
     this.scheduleEditor = new ScheduleEditorWebview(
@@ -67,6 +66,7 @@ export class ExtensionCommands {
       vscode.commands.registerCommand('cursorAgentFlow.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
       vscode.commands.registerCommand('cursorAgentFlow.rerunWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.rerunWorkflowRun(item)),
       vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflow', (goal?: string) => this.startAgenticWorkflow(goal)),
+      vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflowFromPlanDocument', () => this.promptAgenticWorkflowFromPlanDocument()),
       vscode.commands.registerCommand('cursorAgentFlow.reloadCommands', () => this.reloadCommands()),
       vscode.commands.registerCommand('cursorAgentFlow.testExecution', () => this.testExecution()),
     ];
@@ -150,53 +150,48 @@ export class ExtensionCommands {
   }
 
   async startAgenticWorkflowFromGoal(goal: string, requestId?: string): Promise<string> {
-    const trimmedGoal = goal.trim();
-    if (trimmedGoal.length === 0) {
-      throw new Error('Agentic workflow goal must be non-empty');
-    }
-
-    this.workflowRegistry.reload();
-    const workflow = this.workflowRegistry.get(
-      AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
-      AGENTIC_BOOTSTRAP_WORKFLOW_ID
-    ) ?? this.workflowRegistry.getById(AGENTIC_BOOTSTRAP_WORKFLOW_ID);
-    if (!workflow) {
-      const errors = this.workflowRegistry.getErrors()
-        .map(error => `${error.filePath}: ${error.errors.join('; ')}`)
-        .join('\n');
-      throw new Error(errors || `Workflow not found: ${AGENTIC_BOOTSTRAP_WORKFLOW_ID}`);
-    }
-
-    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal, requestId, workflow.filePath);
-    const runId = await this.schedulerService.runScheduleDirect(schedule);
+    const runId = this.agenticWorkflowService.startFromGoal({
+      goal,
+      requestId,
+      source: 'command'
+    });
     this.treeView.refresh();
     return runId;
   }
 
-  private createAgenticWorkflowSchedule(goal: string, requestId: string | undefined, workflowFilePath: string): Schedule {
-    return {
-      id: `agentic-workflow-${Date.now()}`,
-      name: `Agentic Workflow: ${goal.slice(0, 60)}`,
-      enabled: false,
-      cron: '0 0 1 1 *',
-      targetType: 'workflow',
-      workflowRef: {
-        filePath: workflowFilePath,
-        workflowId: AGENTIC_BOOTSTRAP_WORKFLOW_ID
-      },
-      promptTemplate: goal,
-      executionMode: 'ide',
-      outputConfig: {
-        type: 'none'
-      },
-      constraints: {
-        maxRuntime: 1800
-      },
-      metadata: {
-        description: 'Ad-hoc agentic workflow run from the command bridge',
-        requestId
-      }
-    };
+  async startAgenticWorkflowFromPlanDocument(planPath: string, goal?: string, requestId?: string): Promise<string> {
+    const runId = this.agenticWorkflowService.startFromPlanDocument({
+      planPath,
+      goal,
+      requestId,
+      source: 'command'
+    });
+    this.treeView.refresh();
+    return runId;
+  }
+
+  private async promptAgenticWorkflowFromPlanDocument(): Promise<void> {
+    const planPath = await vscode.window.showInputBox({
+      prompt: 'Path to the ready master plan document',
+      placeHolder: 'Example: ~/.cursor/plans/my-ready-plan.md',
+      ignoreFocusOut: true
+    });
+    if (!planPath || planPath.trim().length === 0) {
+      return;
+    }
+    const goal = await vscode.window.showInputBox({
+      prompt: 'Optional goal label for this ready-plan run',
+      placeHolder: 'Example: Execute prepared PR review plan',
+      ignoreFocusOut: true
+    });
+
+    try {
+      const runId = await this.startAgenticWorkflowFromPlanDocument(planPath.trim(), goal?.trim());
+      vscode.window.showInformationMessage(`Started ready-plan workflow run ${runId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to start ready-plan workflow: ${message}`);
+    }
   }
 
   private async enableSchedule(item: ScheduleTreeItem): Promise<void> {
@@ -327,7 +322,8 @@ export class ExtensionCommands {
       return;
     }
 
-    const cancelled = this.schedulerService.cancelWorkflowRun(run.id);
+    const cancelled = this.agenticWorkflowService.cancelWorkflowRun(run.id)
+      || this.schedulerService.cancelWorkflowRun(run.id);
     if (cancelled) {
       this.treeView.refresh();
       vscode.window.showInformationMessage(`Workflow run "${run.workflowName}" cancelled`);

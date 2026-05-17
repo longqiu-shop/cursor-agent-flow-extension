@@ -10,8 +10,7 @@ import { SkillRegistry } from '../commands/skillRegistry';
 import { AgentRegistry } from '../commands/agentRegistry';
 import { WorkflowRegistry } from '../workflow/workflowRegistry';
 import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
-import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
-import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue';
+import { WorkflowRunnerFactory } from '../workflow/workflowRunnerFactory';
 import { ExecutionEngine } from '../execution/executionEngine';
 import { getNextRunTime } from '../utils/cronUtils';
 
@@ -38,8 +37,7 @@ export class SchedulerService implements vscode.Disposable {
     agentRegistry: AgentRegistry,
     workflowRegistry: WorkflowRegistry,
     runningWorkflowRegistry: RunningWorkflowRegistry,
-    submissionQueue: CursorAgentSubmissionQueue,
-    schemaRegistry: WorkflowSchemaRegistry
+    workflowRunnerFactory: WorkflowRunnerFactory
   ) {
     this.storageManager = storageManager;
     this.commandRegistry = commandRegistry;
@@ -50,9 +48,7 @@ export class SchedulerService implements vscode.Disposable {
       skillRegistry,
       agentRegistry,
       workflowRegistry,
-      runningWorkflowRegistry,
-      submissionQueue,
-      schemaRegistry
+      workflowRunnerFactory
     );
   }
 
