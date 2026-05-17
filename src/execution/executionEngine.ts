@@ -260,14 +260,17 @@ export class ExecutionEngine {
         if (!execution.workflow) {
           throw new Error('No workflow provided');
         }
+        const trigger = {
+          goal: schedule.promptTemplate ?? schedule.name,
+          requestId: schedule.metadata?.requestId,
+          scheduleId: schedule.id,
+          startedAt: runRecord.startedAt
+        };
         const workflowRun = await this.workflowRunner.run(execution.workflow, {
           scheduleId: schedule.id,
+          trigger,
           variables: {
-            trigger: {
-              goal: schedule.promptTemplate ?? schedule.name,
-              scheduleId: schedule.id,
-              startedAt: runRecord.startedAt
-            }
+            trigger
           }
         });
         await this.handleExecutionResult(execution, runRecord, {

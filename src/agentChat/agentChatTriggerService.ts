@@ -15,7 +15,7 @@ export interface AgentChatTriggerResult {
   error?: string;
 }
 
-type StartAgenticWorkflow = (goal: string) => Promise<string>;
+type StartAgenticWorkflow = (goal: string, requestId?: string) => Promise<string>;
 
 const REQUEST_ID_PATTERN = /^start-agentic-workflow-\d{14}$/;
 const REQUEST_KEYS = ['goal', 'requestId', 'type'];
@@ -74,7 +74,7 @@ export class AgentChatTriggerService {
     this.processedRequestIds.add(requestId);
 
     try {
-      const runId = await this.startAgenticWorkflow(goal);
+      const runId = await this.startAgenticWorkflow(goal, requestId);
       if (!runId || runId.trim().length === 0) {
         throw new Error('Workflow start returned an empty run id');
       }

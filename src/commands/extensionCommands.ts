@@ -15,6 +15,10 @@ import { ScheduleTreeView, ScheduleTreeItem, WorkflowRunTreeItem, WorkflowStepTr
 import { ScheduleEditorWebview } from '../ui/scheduleEditorWebview';
 import { RunHistoryView } from '../ui/runHistoryView';
 import { WorkflowRunDetailsView } from '../ui/workflowRunDetailsView';
+import {
+  getWorkflowRunRerunGoal,
+  orderWorkflowRunsForTree
+} from '../ui/workflowRunVisibility';
 import { CursorAgentExecutor } from '../agent/keyboardAgent';
 
 const AGENTIC_BOOTSTRAP_WORKFLOW_FILE = '.cursor/workflows/agentic-workflow-bootstrap.json';
@@ -61,6 +65,7 @@ export class ExtensionCommands {
       vscode.commands.registerCommand('cursorAgentFlow.inspectWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.inspectWorkflowRun(item)),
       vscode.commands.registerCommand('cursorAgentFlow.openWorkflowRunFolder', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.openWorkflowRunFolder(item)),
       vscode.commands.registerCommand('cursorAgentFlow.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.rerunWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.rerunWorkflowRun(item)),
       vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflow', (goal?: string) => this.startAgenticWorkflow(goal)),
       vscode.commands.registerCommand('cursorAgentFlow.reloadCommands', () => this.reloadCommands()),
       vscode.commands.registerCommand('cursorAgentFlow.testExecution', () => this.testExecution()),
@@ -144,13 +149,13 @@ export class ExtensionCommands {
     }
   }
 
-  async startAgenticWorkflowFromGoal(goal: string): Promise<string> {
+  async startAgenticWorkflowFromGoal(goal: string, requestId?: string): Promise<string> {
     const trimmedGoal = goal.trim();
     if (trimmedGoal.length === 0) {
       throw new Error('Agentic workflow goal must be non-empty');
     }
 
-    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal);
+    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal, requestId);
     this.workflowRegistry.reload();
     const workflow = this.workflowRegistry.get(
       AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
@@ -168,7 +173,7 @@ export class ExtensionCommands {
     return runId;
   }
 
-  private createAgenticWorkflowSchedule(goal: string): Schedule {
+  private createAgenticWorkflowSchedule(goal: string, requestId?: string): Schedule {
     return {
       id: `agentic-workflow-${Date.now()}`,
       name: `Agentic Workflow: ${goal.slice(0, 60)}`,
@@ -188,7 +193,8 @@ export class ExtensionCommands {
         maxRuntime: 1800
       },
       metadata: {
-        description: 'Ad-hoc agentic workflow run from the command bridge'
+        description: 'Ad-hoc agentic workflow run from the command bridge',
+        requestId
       }
     };
   }
@@ -307,7 +313,7 @@ export class ExtensionCommands {
   }
 
   private async cancelWorkflowRun(item?: WorkflowRunTreeItem | WorkflowStepTreeItem): Promise<void> {
-    const run = this.getWorkflowRunFromItem(item) ?? await this.pickWorkflowRun('Select a workflow run to cancel');
+    const run = this.getWorkflowRunFromItem(item) ?? await this.pickWorkflowRun('Select a workflow run to cancel', true);
     if (!run) {
       return;
     }
@@ -330,6 +336,32 @@ export class ExtensionCommands {
     }
   }
 
+  private async rerunWorkflowRun(item?: WorkflowRunTreeItem | WorkflowStepTreeItem): Promise<void> {
+    const run = this.getWorkflowRunFromItem(item) ?? await this.pickWorkflowRun('Select a workflow run to rerun');
+    if (!run) {
+      return;
+    }
+
+    const goal = getWorkflowRunRerunGoal(run);
+    if (!goal) {
+      vscode.window.showWarningMessage(`Workflow run "${run.workflowName}" does not have rerun metadata`);
+      return;
+    }
+
+    if (run.workflowId !== AGENTIC_BOOTSTRAP_WORKFLOW_ID) {
+      vscode.window.showWarningMessage(`Workflow run "${run.workflowName}" cannot be rerun from this view yet`);
+      return;
+    }
+
+    try {
+      const runId = await this.startAgenticWorkflowFromGoal(goal);
+      vscode.window.showInformationMessage(`Reran workflow as ${runId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to rerun workflow: ${message}`);
+    }
+  }
+
   private async reloadCommands(): Promise<void> {
     this.commandRegistry.reloadCommands();
     this.skillRegistry.reload();
@@ -348,10 +380,12 @@ export class ExtensionCommands {
     return undefined;
   }
 
-  private async pickWorkflowRun(placeHolder: string): Promise<WorkflowRun | undefined> {
-    const runs = this.runningWorkflowRegistry.listActive();
+  private async pickWorkflowRun(placeHolder: string, activeOnly = false): Promise<WorkflowRun | undefined> {
+    const runs = activeOnly
+      ? this.runningWorkflowRegistry.listActive()
+      : orderWorkflowRunsForTree(this.runningWorkflowRegistry.listAll());
     if (runs.length === 0) {
-      vscode.window.showInformationMessage('No active workflow runs');
+      vscode.window.showInformationMessage(activeOnly ? 'No active workflow runs' : 'No workflow runs');
       return undefined;
     }
 

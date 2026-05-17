@@ -7,6 +7,11 @@ import { Schedule, WorkflowRun, WorkflowStepRun, WorkflowStatus, StepStatus } fr
 import { StorageManager } from '../storage/storageManager';
 import { SchedulerService } from '../scheduler/schedulerService';
 import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
+import {
+  isCancellableWorkflowStatus,
+  isRerunnableWorkflowRun,
+  orderWorkflowRunsForTree
+} from './workflowRunVisibility';
 
 export type ScheduleTreeElement = ScheduleTreeItem | WorkflowRunTreeItem | WorkflowStepTreeItem;
 
@@ -91,9 +96,7 @@ export class WorkflowRunTreeItem extends vscode.TreeItem {
     this.description = getWorkflowRunDescription(workflowRun);
     this.tooltip = getWorkflowRunTooltip(workflowRun);
     this.iconPath = getWorkflowStatusIcon(workflowRun.status);
-    this.contextValue = isCancellableWorkflowStatus(workflowRun.status)
-      ? 'workflow-run-cancellable'
-      : 'workflow-run';
+    this.contextValue = getWorkflowRunContextValue(workflowRun);
     this.command = {
       command: 'cursorAgentFlow.inspectWorkflowRun',
       title: 'Inspect Workflow Run',
@@ -164,9 +167,9 @@ export class ScheduleTreeView implements vscode.TreeDataProvider<ScheduleTreeEle
     }
 
     const schedules = await this.storageManager.loadSchedules();
-    const activeRuns = this.runningWorkflowRegistry.listActive();
+    const workflowRuns = orderWorkflowRunsForTree(this.runningWorkflowRegistry.listAll());
     return [
-      ...activeRuns.map(run => new WorkflowRunTreeItem(run, vscode.TreeItemCollapsibleState.Collapsed)),
+      ...workflowRuns.map(run => new WorkflowRunTreeItem(run, vscode.TreeItemCollapsibleState.Collapsed)),
       ...schedules.map(schedule => new ScheduleTreeItem(schedule, vscode.TreeItemCollapsibleState.None, this.schedulerService))
     ];
   }
@@ -201,6 +204,12 @@ function getWorkflowRunTooltip(run: WorkflowRun): string {
 
   if (run.currentStepId) {
     lines.push(`Current Step: ${run.currentStepId}`);
+  }
+  if (run.trigger?.goal) {
+    lines.push(`Goal: ${run.trigger.goal}`);
+  }
+  if (run.trigger?.requestId) {
+    lines.push(`Request ID: ${run.trigger.requestId}`);
   }
   if (run.finishedAt) {
     lines.push(`Finished: ${new Date(run.finishedAt).toLocaleString()}`);
@@ -265,6 +274,12 @@ function getStepStatusIcon(status: StepStatus): vscode.ThemeIcon {
   return getWorkflowStatusIcon(status);
 }
 
-function isCancellableWorkflowStatus(status: WorkflowStatus): boolean {
-  return status === 'pending' || status === 'running' || status === 'blocked';
+function getWorkflowRunContextValue(run: WorkflowRun): string {
+  if (isCancellableWorkflowStatus(run.status)) {
+    return 'workflow-run-cancellable';
+  }
+  if (isRerunnableWorkflowRun(run)) {
+    return 'workflow-run-rerunnable';
+  }
+  return 'workflow-run';
 }

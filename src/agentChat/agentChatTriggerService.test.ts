@@ -42,14 +42,17 @@ test('starts workflow for a valid request and writes exact started result', asyn
     goal: '  Summarize today\'s git changes  '
   });
   const goals: string[] = [];
-  const service = new AgentChatTriggerService(async goal => {
+  const requestIds: Array<string | undefined> = [];
+  const service = new AgentChatTriggerService(async (goal, startedRequestId) => {
     goals.push(goal);
+    requestIds.push(startedRequestId);
     return 'run_123';
   });
 
   const result = await service.processRequestFile(requestPath(requestsDir, requestId));
 
   assert.deepEqual(goals, ['Summarize today\'s git changes']);
+  assert.deepEqual(requestIds, [requestId]);
   assert.deepEqual(result, {
     requestId,
     status: 'started',
