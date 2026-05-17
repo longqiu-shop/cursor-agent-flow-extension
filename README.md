@@ -37,7 +37,7 @@ pnpm run package
 This creates a VSIX in the project root:
 
 ```bash
-cursor-agent-flow-extension-1.0.1.vsix
+cursor-agent-flow-1.0.1.vsix
 ```
 
 Install it in Cursor with `Extensions: Install from VSIX...`.
@@ -198,9 +198,9 @@ The extension scans these locations:
 
 | Target | Default locations | Extra setting |
 | --- | --- | --- |
-| Commands | `.cursor/commands`, `~/.cursor/commands` | `agentSchedules.additionalCommandDirectories` |
-| Skills | `.cursor/skills`, `~/.cursor/skills-cursor` | `agentSchedules.additionalSkillsDirectories` |
-| Agents | `.cursor/agents`, `~/.cursor/agents` | `agentSchedules.additionalAgentsDirectories` |
+| Commands | `.cursor/commands`, `~/.cursor/commands` | `cursorAgentFlow.additionalCommandDirectories` |
+| Skills | `.cursor/skills`, `~/.cursor/skills-cursor` | `cursorAgentFlow.additionalSkillsDirectories` |
+| Agents | `.cursor/agents`, `~/.cursor/agents` | `cursorAgentFlow.additionalAgentsDirectories` |
 | Workflows | `.cursor/workflows` | Not configurable |
 
 Relative extra directories are resolved from the current process working directory. Absolute paths and `~` are also supported.

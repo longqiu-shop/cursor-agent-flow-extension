@@ -27,7 +27,7 @@ test('declares a project skill for the agentic workflow trigger', () => {
   const skill = fs.readFileSync(skillPath, 'utf-8');
 
   assert.match(skill, /^---\nname: start-agentic-workflow/m);
-  assert.match(skill, /agentSchedules\.startAgenticWorkflow/);
+  assert.match(skill, /cursorAgentFlow\.startAgenticWorkflow/);
   assert.match(skill, /\.cursor\/workflows\/agentic-workflow-bootstrap\.json/);
   assert.match(skill, /toolInventory -> planner -> planRuntime/);
 });

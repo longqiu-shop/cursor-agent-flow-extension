@@ -9,9 +9,9 @@ import * as crypto from 'crypto';
 
 const SCHEDULES_FILE = '.cursor/agent-schedules.json';
 const STORAGE_KEYS = {
-  USER_OVERRIDES: 'agentSchedules.userOverrides',
-  RUN_HISTORY: 'agentSchedules.runHistory',
-  LAST_RELOAD: 'agentSchedules.lastReload'
+  USER_OVERRIDES: 'cursorAgentFlow.userOverrides',
+  RUN_HISTORY: 'cursorAgentFlow.runHistory',
+  LAST_RELOAD: 'cursorAgentFlow.lastReload'
 };
 
 interface UserOverride {

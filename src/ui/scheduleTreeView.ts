@@ -95,7 +95,7 @@ export class WorkflowRunTreeItem extends vscode.TreeItem {
       ? 'workflow-run-cancellable'
       : 'workflow-run';
     this.command = {
-      command: 'agentSchedules.inspectWorkflowRun',
+      command: 'cursorAgentFlow.inspectWorkflowRun',
       title: 'Inspect Workflow Run',
       arguments: [this]
     };

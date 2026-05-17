@@ -53,7 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
   treeView = new ScheduleTreeView(storageManager, schedulerService, runningWorkflowRegistry);
 
   // Register tree view
-  const treeViewProvider = vscode.window.createTreeView('agentSchedules', {
+  const treeViewProvider = vscode.window.createTreeView('cursorAgentFlow', {
     treeDataProvider: treeView,
     showCollapseAll: false
   });

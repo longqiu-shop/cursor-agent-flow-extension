@@ -77,7 +77,7 @@ export const GLOBAL_SKILLS_DIR = '.cursor/skills-cursor';
  * Get additional command directories from configuration
  */
 export function getAdditionalCommandDirs(): string[] {
-  const config = vscode.workspace.getConfiguration('agentSchedules');
+  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
   const additionalDirs = config.get<string[]>('additionalCommandDirectories', []);
   return additionalDirs.filter(dir => dir && dir.trim().length > 0);
 }
@@ -86,7 +86,7 @@ export function getAdditionalCommandDirs(): string[] {
  * Get additional skill directories from configuration
  */
 export function getAdditionalSkillsDirs(): string[] {
-  const config = vscode.workspace.getConfiguration('agentSchedules');
+  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
   const additionalDirs = config.get<string[]>('additionalSkillsDirectories', []);
   return additionalDirs.filter(dir => dir && dir.trim().length > 0);
 }
@@ -95,7 +95,7 @@ export function getAdditionalSkillsDirs(): string[] {
  * Get additional agent directories from configuration
  */
 export function getAdditionalAgentsDirs(): string[] {
-  const config = vscode.workspace.getConfiguration('agentSchedules');
+  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
   const additionalDirs = config.get<string[]>('additionalAgentsDirectories', []);
   return additionalDirs.filter(dir => dir && dir.trim().length > 0);
 }

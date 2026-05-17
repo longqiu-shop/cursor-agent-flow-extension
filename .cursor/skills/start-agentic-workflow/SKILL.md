@@ -14,7 +14,7 @@ Starts the project agentic workflow runtime from chat by routing the user's goal
 Use this skill when the user wants to trigger the agentic workflow runtime from Cursor chat.
 
 1. Confirm or infer the user's workflow goal in one short sentence.
-2. Trigger the VS Code command `agentSchedules.startAgenticWorkflow` if command invocation is available.
+2. Trigger the VS Code command `cursorAgentFlow.startAgenticWorkflow` if command invocation is available.
 3. If command invocation is not available, tell the user to run Command Palette -> `Agent Schedules: Start Agentic Workflow` and paste the goal when prompted.
 4. After the command starts, the extension runs `.cursor/workflows/agentic-workflow-bootstrap.json`.
 5. The expected runtime flow is `toolInventory -> planner -> planRuntime`.
