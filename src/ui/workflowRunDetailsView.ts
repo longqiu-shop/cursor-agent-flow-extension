@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { WorkflowRun, WorkflowStepRun } from '../types';
+import { loadWorkflowRunDebugFiles, WorkflowRunDebugFile } from './workflowRunDebugInfo';
 import { loadWorkflowRunTimeline, WorkflowRunTimelineEvent } from './workflowRunTimeline';
 
 export class WorkflowRunDetailsView {
@@ -9,7 +10,8 @@ export class WorkflowRunDetailsView {
       `Workflow: ${run.workflowName}`,
       vscode.ViewColumn.One,
       {
-        enableScripts: false
+        enableScripts: false,
+        enableCommandUris: true
       }
     );
 
@@ -17,6 +19,7 @@ export class WorkflowRunDetailsView {
   }
 
   private getHtml(webview: vscode.Webview, run: WorkflowRun): string {
+    const debugFiles = loadWorkflowRunDebugFiles(run.runDir);
     const timeline = loadWorkflowRunTimeline(run.runDir);
     return `<!DOCTYPE html>
 <html lang="en">
@@ -68,6 +71,13 @@ export class WorkflowRunDetailsView {
       padding: 1px 4px;
       border-radius: 3px;
     }
+    a {
+      color: var(--vscode-textLink-foreground);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -108,8 +118,9 @@ export class WorkflowRunDetailsView {
   ` : ''}
   <div class="detail-row">
     <div class="detail-label">Run Directory</div>
-    <code>${escapeHtml(run.runDir)}</code>
+    ${this.renderFileLink(run.runDir, run.runDir, 'reveal')}
   </div>
+  ${this.renderDebugInfo(debugFiles)}
   <h2>Steps</h2>
   <table>
     <thead>
@@ -137,10 +148,34 @@ export class WorkflowRunDetailsView {
       <td><code>${escapeHtml(label)}</code></td>
       <td>${escapeHtml(step.type)}</td>
       <td class="status-${escapeHtml(step.status)}">${escapeHtml(step.status)}</td>
-      <td>${escapeHtml(step.outputArtifact ?? step.expectedArtifact ?? '')}</td>
+      <td>${this.renderOptionalFileLink(step.outputArtifact ?? step.expectedArtifact)}</td>
       <td>${escapeHtml(notes)}</td>
     </tr>`;
     return row + (step.childRuns ?? []).map(child => this.renderStepRow(child, depth + 1)).join('');
+  }
+
+  private renderDebugInfo(debugFiles: WorkflowRunDebugFile[]): string {
+    if (debugFiles.length === 0) {
+      return '';
+    }
+
+    return `<h2>Debug Information</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>File</th>
+        <th>Size</th>
+        <th>Modified</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${debugFiles.map(file => `<tr>
+        <td>${this.renderFileLink(file.absolutePath, file.relativePath)}</td>
+        <td>${formatBytes(file.sizeBytes)}</td>
+        <td>${new Date(file.modifiedAt).toLocaleString()}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
   }
 
   private renderTimeline(timeline: WorkflowRunTimelineEvent[]): string {
@@ -166,6 +201,19 @@ export class WorkflowRunDetailsView {
     </tbody>
   </table>`;
   }
+
+  private renderOptionalFileLink(filePath: string | undefined): string {
+    if (!filePath) {
+      return '';
+    }
+    return this.renderFileLink(filePath, filePath);
+  }
+
+  private renderFileLink(filePath: string, label: string, command: 'open' | 'reveal' = 'open'): string {
+    const commandName = command === 'reveal' ? 'revealFileInOS' : 'vscode.open';
+    const href = `command:${commandName}?${encodeURIComponent(JSON.stringify([vscode.Uri.file(filePath)]))}`;
+    return `<a href="${escapeHtml(href)}"><code>${escapeHtml(label)}</code></a>`;
+  }
 }
 
 function escapeHtml(text: string): string {
@@ -179,4 +227,17 @@ function escapeHtml(text: string): string {
     };
     return map[m];
   });
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const kibibytes = bytes / 1024;
+  if (kibibytes < 1024) {
+    return `${kibibytes.toFixed(1)} KB`;
+  }
+
+  return `${(kibibytes / 1024).toFixed(1)} MB`;
 }
