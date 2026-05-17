@@ -21,7 +21,7 @@ To load commands from additional directories (like your Personal/AI-Assistant fo
 
 ```json
 {
-  "agentSchedules.additionalCommandDirectories": [
+  "cursorAgentFlow.additionalCommandDirectories": [
     "~/Dropbox/Personal/Jose Lopez/AI-Assistant/.cursor/commands"
   ]
 }
@@ -35,7 +35,7 @@ To load commands from additional directories (like your Personal/AI-Assistant fo
 
 ```json
 {
-  "agentSchedules.additionalCommandDirectories": [
+  "cursorAgentFlow.additionalCommandDirectories": [
     "~/Dropbox/Personal/Jose Lopez/AI-Assistant/.cursor/commands"
   ]
 }
@@ -53,7 +53,7 @@ You can specify multiple directories:
 
 ```json
 {
-  "agentSchedules.additionalCommandDirectories": [
+  "cursorAgentFlow.additionalCommandDirectories": [
     "~/Dropbox/Personal/Jose Lopez/AI-Assistant/.cursor/commands",
     "~/Documents/MyCommands/.cursor/commands",
     "/absolute/path/to/commands"
@@ -73,7 +73,7 @@ To load your Personal/AI-Assistant commands:
 
 ```json
 {
-  "agentSchedules.additionalCommandDirectories": [
+  "cursorAgentFlow.additionalCommandDirectories": [
     "~/Dropbox/Personal/Jose Lopez/AI-Assistant/.cursor/commands"
   ]
 }

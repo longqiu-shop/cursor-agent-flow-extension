@@ -1,5 +1,5 @@
 {
-  "name": "cursor-agent-flow-extension",
+  "name": "cursor-agent-flow",
   "displayName": "Cursor Agent Flow",
   "description": "Schedule and orchestrate Cursor AI agents with cron schedules and multi-step workflows",
   "version": "1.0.1",
@@ -38,66 +38,66 @@
   "contributes": {
     "commands": [
       {
-        "command": "agentSchedules.add",
+        "command": "cursorAgentFlow.add",
         "title": "Agent Schedules: Add Schedule",
         "icon": "$(add)"
       },
       {
-        "command": "agentSchedules.runNow",
+        "command": "cursorAgentFlow.runNow",
         "title": "Agent Schedules: Run Now",
         "icon": "$(play)"
       },
       {
-        "command": "agentSchedules.edit",
+        "command": "cursorAgentFlow.edit",
         "title": "Agent Schedules: Edit"
       },
       {
-        "command": "agentSchedules.enable",
+        "command": "cursorAgentFlow.enable",
         "title": "Agent Schedules: Enable"
       },
       {
-        "command": "agentSchedules.disable",
+        "command": "cursorAgentFlow.disable",
         "title": "Agent Schedules: Disable"
       },
       {
-        "command": "agentSchedules.viewRuns",
+        "command": "cursorAgentFlow.viewRuns",
         "title": "Agent Schedules: View Run History"
       },
       {
-        "command": "agentSchedules.viewWorkflowRuns",
+        "command": "cursorAgentFlow.viewWorkflowRuns",
         "title": "Agent Schedules: View Active Workflow Runs",
         "icon": "$(list-tree)"
       },
       {
-        "command": "agentSchedules.startAgenticWorkflow",
+        "command": "cursorAgentFlow.startAgenticWorkflow",
         "title": "Agent Schedules: Start Agentic Workflow"
       },
       {
-        "command": "agentSchedules.inspectWorkflowRun",
+        "command": "cursorAgentFlow.inspectWorkflowRun",
         "title": "Agent Schedules: Inspect Workflow Run"
       },
       {
-        "command": "agentSchedules.openWorkflowRunFolder",
+        "command": "cursorAgentFlow.openWorkflowRunFolder",
         "title": "Agent Schedules: Open Workflow Run Folder"
       },
       {
-        "command": "agentSchedules.cancelWorkflowRun",
+        "command": "cursorAgentFlow.cancelWorkflowRun",
         "title": "Agent Schedules: Cancel Workflow Run"
       },
       {
-        "command": "agentSchedules.reloadCommands",
+        "command": "cursorAgentFlow.reloadCommands",
         "title": "Agent Schedules: Reload Commands",
         "icon": "$(refresh)"
       },
       {
-        "command": "agentSchedules.testExecution",
+        "command": "cursorAgentFlow.testExecution",
         "title": "Agent Schedules: Test Execution"
       }
     ],
     "views": {
       "explorer": [
         {
-          "id": "agentSchedules",
+          "id": "cursorAgentFlow",
           "name": "Agent Schedules",
           "when": "true"
         }
@@ -106,75 +106,75 @@
     "menus": {
       "view/title": [
         {
-          "command": "agentSchedules.add",
-          "when": "view == agentSchedules",
+          "command": "cursorAgentFlow.add",
+          "when": "view == cursorAgentFlow",
           "group": "navigation"
         },
         {
-          "command": "agentSchedules.runNow",
-          "when": "view == agentSchedules",
+          "command": "cursorAgentFlow.runNow",
+          "when": "view == cursorAgentFlow",
           "group": "navigation"
         },
         {
-          "command": "agentSchedules.viewWorkflowRuns",
-          "when": "view == agentSchedules",
+          "command": "cursorAgentFlow.viewWorkflowRuns",
+          "when": "view == cursorAgentFlow",
           "group": "navigation"
         },
         {
-          "command": "agentSchedules.startAgenticWorkflow",
-          "when": "view == agentSchedules",
+          "command": "cursorAgentFlow.startAgenticWorkflow",
+          "when": "view == cursorAgentFlow",
           "group": "navigation"
         },
         {
-          "command": "agentSchedules.reloadCommands",
-          "when": "view == agentSchedules",
+          "command": "cursorAgentFlow.reloadCommands",
+          "when": "view == cursorAgentFlow",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "agentSchedules.runNow",
-          "when": "view == agentSchedules && viewItem == schedule-enabled",
+          "command": "cursorAgentFlow.runNow",
+          "when": "view == cursorAgentFlow && viewItem == schedule-enabled",
           "group": "inline"
         },
         {
-          "command": "agentSchedules.runNow",
-          "when": "view == agentSchedules && viewItem == schedule-disabled",
+          "command": "cursorAgentFlow.runNow",
+          "when": "view == cursorAgentFlow && viewItem == schedule-disabled",
           "group": "inline"
         },
         {
-          "command": "agentSchedules.edit",
-          "when": "view == agentSchedules && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
+          "command": "cursorAgentFlow.edit",
+          "when": "view == cursorAgentFlow && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
           "group": "1_actions"
         },
         {
-          "command": "agentSchedules.enable",
-          "when": "view == agentSchedules && viewItem == schedule-disabled",
+          "command": "cursorAgentFlow.enable",
+          "when": "view == cursorAgentFlow && viewItem == schedule-disabled",
           "group": "2_toggle"
         },
         {
-          "command": "agentSchedules.disable",
-          "when": "view == agentSchedules && viewItem == schedule-enabled",
+          "command": "cursorAgentFlow.disable",
+          "when": "view == cursorAgentFlow && viewItem == schedule-enabled",
           "group": "2_toggle"
         },
         {
-          "command": "agentSchedules.viewRuns",
-          "when": "view == agentSchedules && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
+          "command": "cursorAgentFlow.viewRuns",
+          "when": "view == cursorAgentFlow && (viewItem == schedule-enabled || viewItem == schedule-disabled)",
           "group": "3_history"
         },
         {
-          "command": "agentSchedules.inspectWorkflowRun",
-          "when": "view == agentSchedules && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "command": "cursorAgentFlow.inspectWorkflowRun",
+          "when": "view == cursorAgentFlow && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
           "group": "1_workflow"
         },
         {
-          "command": "agentSchedules.openWorkflowRunFolder",
-          "when": "view == agentSchedules && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "command": "cursorAgentFlow.openWorkflowRunFolder",
+          "when": "view == cursorAgentFlow && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
           "group": "1_workflow"
         },
         {
-          "command": "agentSchedules.cancelWorkflowRun",
-          "when": "view == agentSchedules && viewItem == workflow-run-cancellable",
+          "command": "cursorAgentFlow.cancelWorkflowRun",
+          "when": "view == cursorAgentFlow && viewItem == workflow-run-cancellable",
           "group": "2_workflow"
         }
       ]
@@ -182,7 +182,7 @@
     "configuration": {
       "title": "Agent Schedules",
       "properties": {
-        "agentSchedules.additionalCommandDirectories": {
+        "cursorAgentFlow.additionalCommandDirectories": {
           "type": "array",
           "items": {
             "type": "string"
@@ -190,13 +190,13 @@
           "default": [],
           "description": "Additional directories to search for command files (.md, .json, .yaml). Supports absolute paths, relative paths, and ~ for home directory."
         },
-        "agentSchedules.additionalSkillsDirectories": {
+        "cursorAgentFlow.additionalSkillsDirectories": {
           "type": "array",
           "items": { "type": "string" },
           "default": [],
           "description": "Additional directories to search for skills (subdirs with SKILL.md or .md)."
         },
-        "agentSchedules.additionalAgentsDirectories": {
+        "cursorAgentFlow.additionalAgentsDirectories": {
           "type": "array",
           "items": { "type": "string" },
           "default": [],

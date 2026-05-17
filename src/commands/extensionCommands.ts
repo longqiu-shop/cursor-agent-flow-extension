@@ -51,19 +51,19 @@ export class ExtensionCommands {
 
   register(context: vscode.ExtensionContext): void {
     const commands = [
-      vscode.commands.registerCommand('agentSchedules.add', () => this.addSchedule()),
-      vscode.commands.registerCommand('agentSchedules.edit', (item?: ScheduleTreeItem) => this.editSchedule(item)),
-      vscode.commands.registerCommand('agentSchedules.runNow', (item?: ScheduleTreeItem) => this.runNow(item)),
-      vscode.commands.registerCommand('agentSchedules.enable', (item: ScheduleTreeItem) => this.enableSchedule(item)),
-      vscode.commands.registerCommand('agentSchedules.disable', (item: ScheduleTreeItem) => this.disableSchedule(item)),
-      vscode.commands.registerCommand('agentSchedules.viewRuns', (item?: ScheduleTreeItem) => this.viewRuns(item)),
-      vscode.commands.registerCommand('agentSchedules.viewWorkflowRuns', () => this.viewWorkflowRuns()),
-      vscode.commands.registerCommand('agentSchedules.inspectWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.inspectWorkflowRun(item)),
-      vscode.commands.registerCommand('agentSchedules.openWorkflowRunFolder', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.openWorkflowRunFolder(item)),
-      vscode.commands.registerCommand('agentSchedules.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
-      vscode.commands.registerCommand('agentSchedules.startAgenticWorkflow', () => this.startAgenticWorkflow()),
-      vscode.commands.registerCommand('agentSchedules.reloadCommands', () => this.reloadCommands()),
-      vscode.commands.registerCommand('agentSchedules.testExecution', () => this.testExecution()),
+      vscode.commands.registerCommand('cursorAgentFlow.add', () => this.addSchedule()),
+      vscode.commands.registerCommand('cursorAgentFlow.edit', (item?: ScheduleTreeItem) => this.editSchedule(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.runNow', (item?: ScheduleTreeItem) => this.runNow(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.enable', (item: ScheduleTreeItem) => this.enableSchedule(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.disable', (item: ScheduleTreeItem) => this.disableSchedule(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.viewRuns', (item?: ScheduleTreeItem) => this.viewRuns(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.viewWorkflowRuns', () => this.viewWorkflowRuns()),
+      vscode.commands.registerCommand('cursorAgentFlow.inspectWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.inspectWorkflowRun(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.openWorkflowRunFolder', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.openWorkflowRunFolder(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
+      vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflow', () => this.startAgenticWorkflow()),
+      vscode.commands.registerCommand('cursorAgentFlow.reloadCommands', () => this.reloadCommands()),
+      vscode.commands.registerCommand('cursorAgentFlow.testExecution', () => this.testExecution()),
     ];
 
     commands.forEach(cmd => context.subscriptions.push(cmd));
