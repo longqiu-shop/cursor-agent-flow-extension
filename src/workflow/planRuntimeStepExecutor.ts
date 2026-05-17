@@ -18,6 +18,7 @@ import { ConfidenceGate } from './confidenceGate';
 import { OutputContractManager, OutputValidationResult } from './outputContractManager';
 import { PlanValidator, PLAN_VALIDATION_ERROR_CODES } from './planValidator';
 import { TraceStore } from './traceStore';
+import { renderTemplate } from './variableResolver';
 import type { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 import type { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecutor } from './workflowRunner';
 import { WorkflowMemoryStore } from './workflowMemoryStore';
@@ -57,6 +58,16 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     const memoryStore = new WorkflowMemoryStore(context.run.runDir);
     const outputManager = new OutputContractManager(context.run.runDir, this.schemaRegistry);
     stepRun.expectedArtifact = context.artifactStore.resolveArtifactPath(step.output.path, context.variables);
+    const artifactInputs = this.resolveInputArtifacts({
+      planArtifact: input.planArtifact,
+      toolInventoryArtifact: input.toolInventoryArtifact
+    }, context);
+    if (!artifactInputs.ok) {
+      return {
+        status: 'failed',
+        error: artifactInputs.error
+      };
+    }
 
     let planRun: PlanRun = {
       schemaVersion: PLAN_SCHEMA_VERSION,
@@ -66,23 +77,23 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     this.writePlanRun(step.output, planRun, context);
     traceStore.append('planRuntime.started', {
       status: 'validating',
-      planArtifact: input.planArtifact,
-      toolInventoryArtifact: input.toolInventoryArtifact
+      planArtifact: artifactInputs.planArtifact,
+      toolInventoryArtifact: artifactInputs.toolInventoryArtifact
     });
 
-    const planContent = context.artifactStore.readText(input.planArtifact, context.variables);
+    const planContent = context.artifactStore.readText(artifactInputs.planArtifact, context.variables);
     if (planContent === undefined) {
       return this.blockBeforePlan(step.output, planRun, context, traceStore, {
         schemaVersion: PLAN_SCHEMA_VERSION,
         valid: false,
         errors: [{
           code: PLAN_VALIDATION_ERROR_CODES.JSON_PARSE_ERROR,
-          message: `Could not read plan artifact: ${input.planArtifact}`
+          message: `Could not read plan artifact: ${artifactInputs.planArtifact}`
         }]
       });
     }
 
-    const inventoryResult = this.readToolInventory(input.toolInventoryArtifact, context);
+    const inventoryResult = this.readToolInventory(artifactInputs.toolInventoryArtifact, context);
     if (!inventoryResult.ok) {
       return this.blockBeforePlan(step.output, planRun, context, traceStore, inventoryResult.validation);
     }
@@ -283,6 +294,41 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       outputArtifact: context.artifactStore.resolveArtifactPath(output.path, context.variables),
       output: planRun
     };
+  }
+
+  private resolveInputArtifacts(
+    input: Required<Pick<PlanRuntimeStepInput, 'planArtifact' | 'toolInventoryArtifact'>>,
+    context: WorkflowExecutionContext
+  ): { ok: true; planArtifact: string; toolInventoryArtifact: string } | { ok: false; error: string } {
+    try {
+      return {
+        ok: true,
+        planArtifact: this.resolveRunRelativeArtifact(input.planArtifact, context),
+        toolInventoryArtifact: this.resolveRunRelativeArtifact(input.toolInventoryArtifact, context)
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  private resolveRunRelativeArtifact(artifactPathTemplate: string, context: WorkflowExecutionContext): string {
+    const renderedPath = renderTemplate(artifactPathTemplate, context.variables);
+    if (!path.isAbsolute(renderedPath)) {
+      return renderedPath;
+    }
+
+    const relativePath = path.relative(context.run.runDir, renderedPath);
+    if (relativePath === '..' || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+      throw new Error(`planRuntime artifact path must be inside runDir: ${renderedPath}`);
+    }
+    if (relativePath.length === 0) {
+      throw new Error(`planRuntime artifact path must point to a file inside runDir: ${renderedPath}`);
+    }
+
+    return relativePath;
   }
 
   private readToolInventory(
