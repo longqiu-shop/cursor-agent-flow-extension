@@ -121,6 +121,30 @@ test('rejects runtime capabilities that are not allowed by policy', () => {
   ]);
 });
 
+test('requires approval for high-risk plans', () => {
+  const validator = new PlanValidator();
+  const result = validator.validate(validPlan({ riskLevel: 'high' }), {
+    toolInventory,
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.artifact.errors.map(error => error.code), [
+    PLAN_VALIDATION_ERROR_CODES.HIGH_RISK_REQUIRES_APPROVAL
+  ]);
+
+  const approved = validator.validate(validPlan({
+    riskLevel: 'high',
+    requiresApproval: true
+  }), {
+    toolInventory,
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(approved.valid, true);
+  assert.deepEqual(approved.artifact.errors, []);
+});
+
 test('rejects unsafe, duplicate, and unknown-schema expected outputs', () => {
   const validator = new PlanValidator();
   const baseTask = validPlan().stages[0].tasks[0];

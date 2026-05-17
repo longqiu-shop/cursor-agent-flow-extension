@@ -125,6 +125,13 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     const plan = validation.plan;
     const planHash = this.hash(planContent);
     planRun = this.initializeValidatedPlanRun(plan, planHash, planRun.startedAt);
+    if (plan.riskLevel === 'high' && plan.requiresApproval === true) {
+      return this.blockForApproval(step.output, stepRun.expectedArtifact, planRun, context, traceStore);
+    }
+    if (context.token.isCancellationRequested) {
+      return this.cancelPlanRun(step.output, stepRun.expectedArtifact, planRun, context, traceStore, 'Workflow cancelled before plan execution');
+    }
+
     memoryStore.seedRunMemory({
       workflowId: context.workflow.id,
       workflowName: context.workflow.name,
@@ -135,12 +142,20 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
 
     const childRuns: WorkflowStepRun[] = [];
     for (const stage of plan.stages) {
+      if (context.token.isCancellationRequested) {
+        return this.cancelPlanRun(step.output, stepRun.expectedArtifact, planRun, context, traceStore, 'Workflow cancelled before stage execution');
+      }
+
       this.updateStage(planRun, stage.id, 'running');
       planRun.currentStageId = stage.id;
       this.writePlanRun(step.output, planRun, context);
       traceStore.append('stage.started', { stageId: stage.id });
 
       for (const task of stage.tasks) {
+        if (context.token.isCancellationRequested) {
+          return this.cancelPlanRun(step.output, stepRun.expectedArtifact, planRun, context, traceStore, 'Workflow cancelled before task execution');
+        }
+
         const taskResult = await this.executeTask({
           planRun,
           stageId: stage.id,
@@ -310,6 +325,58 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       status: 'blocked',
       blockedReason: planRun.blockReason,
       outputArtifact: context.artifactStore.resolveArtifactPath(output.path, context.variables),
+      output: planRun
+    };
+  }
+
+  private blockForApproval(
+    output: ArtifactSpec,
+    outputArtifact: string | undefined,
+    planRun: PlanRun,
+    context: WorkflowExecutionContext,
+    traceStore: TraceStore
+  ): StepExecutionResult {
+    planRun.status = 'needsApproval';
+    planRun.blockReason = 'High-risk plan requires human approval before execution';
+    planRun.finishedAt = new Date().toISOString();
+    this.writePlanRun(output, planRun, context);
+    traceStore.append('planRuntime.blocked', {
+      status: 'needsApproval',
+      reason: planRun.blockReason
+    });
+    traceStore.rebuildIndexes();
+
+    return {
+      status: 'blocked',
+      blockedReason: planRun.blockReason,
+      outputArtifact,
+      output: planRun
+    };
+  }
+
+  private cancelPlanRun(
+    output: ArtifactSpec,
+    outputArtifact: string | undefined,
+    planRun: PlanRun,
+    context: WorkflowExecutionContext,
+    traceStore: TraceStore,
+    reason: string
+  ): StepExecutionResult {
+    planRun.status = 'cancelled';
+    planRun.blockReason = reason;
+    planRun.currentStageId = undefined;
+    planRun.currentTaskId = undefined;
+    planRun.finishedAt = new Date().toISOString();
+    this.writePlanRun(output, planRun, context);
+    traceStore.append('planRuntime.cancelled', {
+      status: 'cancelled',
+      reason
+    });
+    traceStore.rebuildIndexes();
+
+    return {
+      status: 'cancelled',
+      outputArtifact,
       output: planRun
     };
   }
