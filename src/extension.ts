@@ -3,6 +3,7 @@
  * Main entry point for the extension
  */
 
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { SchedulerService } from './scheduler/schedulerService';
 import { CommandRegistry } from './commands/commandRegistry';
@@ -106,8 +107,9 @@ export function activate(context: vscode.ExtensionContext) {
     agentChatTriggerTimers.set(uri.fsPath, timer);
   };
 
+  fs.mkdirSync(GLOBAL_AGENT_CHAT_REQUESTS_DIR, { recursive: true });
   const globalAgentChatTriggerWatcher = vscode.workspace.createFileSystemWatcher(
-    `${GLOBAL_AGENT_CHAT_REQUESTS_DIR.replace(/\\/g, '/')}/*.json`
+    new vscode.RelativePattern(vscode.Uri.file(GLOBAL_AGENT_CHAT_REQUESTS_DIR), '*.json')
   );
   globalAgentChatTriggerWatcher.onDidCreate(queueAgentChatTrigger);
   globalAgentChatTriggerWatcher.onDidChange(queueAgentChatTrigger);
