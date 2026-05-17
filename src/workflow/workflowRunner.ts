@@ -3,6 +3,7 @@ import {
   StepStatus,
   WorkflowDefinition,
   WorkflowRun,
+  WorkflowRunTrigger,
   WorkflowStatus,
   WorkflowStep,
   WorkflowStepRun,
@@ -44,6 +45,7 @@ export interface WorkflowStepExecutor {
 
 export interface WorkflowRunOptions {
   scheduleId?: string;
+  trigger?: WorkflowRunTrigger;
   variables?: WorkflowVariables;
 }
 
@@ -75,7 +77,7 @@ export class WorkflowRunner {
   }
 
   async run(workflow: WorkflowDefinition, options: WorkflowRunOptions = {}): Promise<WorkflowRun> {
-    const run = this.createInitialRun(workflow, options.scheduleId);
+    const run = this.createInitialRun(workflow, options);
     const cancellation = new WorkflowCancellationController();
     const artifactStore = new ArtifactStore(run.runDir, this.schemaRegistry);
     const context: WorkflowExecutionContext = {
@@ -153,13 +155,14 @@ export class WorkflowRunner {
     return true;
   }
 
-  private createInitialRun(workflow: WorkflowDefinition, scheduleId?: string): WorkflowRun {
+  private createInitialRun(workflow: WorkflowDefinition, options: WorkflowRunOptions): WorkflowRun {
     const runId = `run_${Date.now()}_${uuidv4()}`;
     return {
       id: runId,
       workflowId: workflow.id,
       workflowName: workflow.name,
-      scheduleId,
+      scheduleId: options.scheduleId,
+      trigger: options.trigger,
       status: 'pending',
       runDir: createWorkflowRunDir(runId),
       startedAt: new Date().toISOString(),

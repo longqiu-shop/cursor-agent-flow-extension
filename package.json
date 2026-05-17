@@ -65,7 +65,7 @@
       },
       {
         "command": "cursorAgentFlow.viewWorkflowRuns",
-        "title": "Cursor Agent Flow: View Active Workflow Runs",
+        "title": "Cursor Agent Flow: View Workflow Runs",
         "icon": "$(list-tree)"
       },
       {
@@ -83,6 +83,10 @@
       {
         "command": "cursorAgentFlow.cancelWorkflowRun",
         "title": "Cursor Agent Flow: Cancel Workflow Run"
+      },
+      {
+        "command": "cursorAgentFlow.rerunWorkflowRun",
+        "title": "Cursor Agent Flow: Rerun Workflow"
       },
       {
         "command": "cursorAgentFlow.reloadCommands",
@@ -164,13 +168,18 @@
         },
         {
           "command": "cursorAgentFlow.inspectWorkflowRun",
-          "when": "view == cursorAgentFlow && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "when": "view == cursorAgentFlow && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-run-rerunnable || viewItem == workflow-step)",
           "group": "1_workflow"
         },
         {
           "command": "cursorAgentFlow.openWorkflowRunFolder",
-          "when": "view == cursorAgentFlow && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-step)",
+          "when": "view == cursorAgentFlow && (viewItem == workflow-run || viewItem == workflow-run-cancellable || viewItem == workflow-run-rerunnable || viewItem == workflow-step)",
           "group": "1_workflow"
+        },
+        {
+          "command": "cursorAgentFlow.rerunWorkflowRun",
+          "when": "view == cursorAgentFlow && viewItem == workflow-run-rerunnable",
+          "group": "2_workflow"
         },
         {
           "command": "cursorAgentFlow.cancelWorkflowRun",

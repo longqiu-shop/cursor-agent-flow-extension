@@ -17,6 +17,7 @@ test('extension manifest exposes the agentic workflow command path', () => {
       commands: Array<{ command: string }>;
       menus: {
         'view/title': Array<{ command: string; when: string }>;
+        'view/item/context': Array<{ command: string; when: string }>;
       };
     };
   };
@@ -32,6 +33,17 @@ test('extension manifest exposes the agentic workflow command path', () => {
     )),
     true
   );
+  assert.equal(
+    manifest.contributes.commands.some(command => command.command === 'cursorAgentFlow.rerunWorkflowRun'),
+    true
+  );
+  assert.equal(
+    manifest.contributes.menus['view/item/context'].some(menu => (
+      menu.command === 'cursorAgentFlow.rerunWorkflowRun'
+      && menu.when === 'view == cursorAgentFlow && viewItem == workflow-run-rerunnable'
+    )),
+    true
+  );
 });
 
 test('extension wires agent chat request files to the agentic workflow starter', () => {
@@ -40,7 +52,7 @@ test('extension wires agent chat request files to the agentic workflow starter',
 
   assert.match(
     extensionSource,
-    /new AgentChatTriggerService\(goal => commands\.startAgenticWorkflowFromGoal\(goal\)\)/
+    /new AgentChatTriggerService\(\(goal, requestId\) => commands\.startAgenticWorkflowFromGoal\(goal, requestId\)\)/
   );
   assert.doesNotMatch(extensionSource, /[^A-Z_]AGENT_CHAT_REQUESTS_DIR/);
   assert.doesNotMatch(extensionSource, /`\$\{AGENT_CHAT_REQUESTS_DIR\}\/\*\.json`/);
@@ -51,6 +63,18 @@ test('extension wires agent chat request files to the agentic workflow starter',
   assert.match(extensionSource, /listAgentChatRequestFiles\(GLOBAL_AGENT_CHAT_REQUESTS_DIR\)/);
   assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidCreate\(queueAgentChatTrigger\)/);
   assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidChange\(queueAgentChatTrigger\)/);
-  assert.match(commandSource, /async startAgenticWorkflowFromGoal\(goal: string\): Promise<string>/);
+  assert.match(commandSource, /async startAgenticWorkflowFromGoal\(goal: string, requestId\?: string\): Promise<string>/);
   assert.match(commandSource, /const runId = await this\.schedulerService\.runScheduleDirect\(schedule\)/);
+});
+
+test('workflow runs persist trigger metadata for reruns', () => {
+  const engineSource = fs.readFileSync(path.resolve(process.cwd(), 'src/execution/executionEngine.ts'), 'utf-8');
+  const runnerSource = fs.readFileSync(path.resolve(process.cwd(), 'src/workflow/workflowRunner.ts'), 'utf-8');
+
+  assert.match(engineSource, /const trigger = \{/);
+  assert.match(engineSource, /goal: schedule\.promptTemplate \?\? schedule\.name/);
+  assert.match(engineSource, /requestId: schedule\.metadata\?\.requestId/);
+  assert.match(engineSource, /trigger,/);
+  assert.match(runnerSource, /trigger\?: WorkflowRunTrigger/);
+  assert.match(runnerSource, /trigger: options\.trigger/);
 });

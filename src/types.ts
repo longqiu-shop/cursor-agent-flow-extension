@@ -73,6 +73,7 @@ export interface Schedule {
     createdAt?: string;
     updatedAt?: string;
     description?: string;
+    requestId?: string;
   };
 }
 
@@ -137,6 +138,7 @@ export interface WorkflowRun {
   workflowId: string;
   workflowName: string;
   scheduleId?: string;
+  trigger?: WorkflowRunTrigger;
   status: WorkflowStatus;
   runDir: string;
   currentStepId?: string;
@@ -144,6 +146,13 @@ export interface WorkflowRun {
   finishedAt?: string;
   error?: string;
   steps: WorkflowStepRun[];
+}
+
+export interface WorkflowRunTrigger {
+  goal?: string;
+  requestId?: string;
+  scheduleId?: string;
+  startedAt?: string;
 }
 
 export interface WorkflowStepRun {

@@ -77,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
   commands.register(context);
 
-  const agentChatTriggerService = new AgentChatTriggerService(goal => commands.startAgenticWorkflowFromGoal(goal));
+  const agentChatTriggerService = new AgentChatTriggerService((goal, requestId) => commands.startAgenticWorkflowFromGoal(goal, requestId));
   const agentChatTriggerTimers = new Map<string, NodeJS.Timeout>();
   const queueAgentChatTrigger = (uri: vscode.Uri) => {
     if (uri.fsPath.endsWith('.result.json')) {
