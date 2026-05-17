@@ -24,6 +24,12 @@ function readEvents(runDir: string): TraceEvent[] {
 function createContext(runDir: string, waitResult: ArtifactWaitResult<unknown>): WorkflowExecutionContext {
   const artifactStore = {
     resolveArtifactPath: (artifactPath: string) => path.join(runDir, artifactPath),
+    writeText: (artifactPath: string, value: string) => {
+      const resolved = path.join(runDir, artifactPath);
+      fs.mkdirSync(path.dirname(resolved), { recursive: true });
+      fs.writeFileSync(resolved, value, 'utf-8');
+      return resolved;
+    },
     waitForArtifact: async <T>(spec: ArtifactSpec): Promise<ArtifactWaitResult<T>> => {
       if (spec.path.startsWith('status/')) {
         return new Promise<ArtifactWaitResult<T>>(() => undefined);
@@ -162,6 +168,59 @@ test('agent step persists submission lifecycle checkpoints and command telemetry
     'event-8',
     'event-9'
   ]);
+});
+
+test('agent step persists exact final submitted prompt when requested', async () => {
+  const runDir = tempRunDir();
+  let submittedPrompt = '';
+  const runner = {
+    submitPrompt: async (prompt: string): Promise<AgentSubmitResult> => {
+      submittedPrompt = prompt;
+      return {
+        success: true,
+        output: 'submitted'
+      };
+    }
+  };
+  const queue = {
+    enqueue: async <T>(run: () => Promise<T>): Promise<T> => run()
+  };
+  const executor = new AgentStepExecutor(runner, queue);
+  const taskStep: WorkflowStep = {
+    ...step,
+    id: 'plan-execute-complete-goal',
+    input: {
+      title: 'execute: complete-goal',
+      prompt: 'Complete the goal.',
+      promptArtifact: 'tasks/execute/complete-goal/prompt.md',
+      stageId: 'execute',
+      taskId: 'complete-goal'
+    },
+    output: {
+      path: 'tasks/execute/complete-goal/output.md',
+      format: 'markdown'
+    }
+  };
+
+  const result = await executor.execute(taskStep, {
+    stepRunId: 'planRuntime.execute.complete-goal',
+    definitionId: taskStep.id,
+    type: 'agent',
+    status: 'running'
+  }, createContext(runDir, {
+    status: 'found',
+    artifactPath: path.join(runDir, 'tasks/execute/complete-goal/output.md'),
+    value: '# Done\n',
+    elapsedMs: 0
+  }));
+
+  const persistedPrompt = fs.readFileSync(path.join(runDir, 'tasks/execute/complete-goal/prompt.md'), 'utf-8');
+  const events = readEvents(runDir);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(persistedPrompt, submittedPrompt);
+  assert.match(persistedPrompt, /Complete the goal\./);
+  assert.match(persistedPrompt, /Workflow step output contract:/);
+  assert.equal(events.some(event => event.type === 'agent.prompted'), true);
 });
 
 test('agent step records failed submission before returning failure', async () => {

@@ -5,6 +5,8 @@ import {
   ToolInventoryOptions
 } from './toolContextProvider';
 import type { ToolInventorySource } from './planSchemas';
+import { TraceStore } from './traceStore';
+import { TRACE_EVENTS } from './traceEvents';
 
 interface ToolInventoryStepInput {
   include?: string[];
@@ -47,6 +49,9 @@ export class ToolInventoryStepExecutor implements WorkflowStepExecutor {
     const inventory = this.toolContextProvider.snapshot(options.value);
     stepRun.expectedArtifact = context.artifactStore.resolveArtifactPath(step.output.path, context.variables);
     const outputArtifact = context.artifactStore.writeJson(step.output.path, inventory, context.variables);
+    new TraceStore(context.run.runDir).appendTyped(TRACE_EVENTS.TOOL_INVENTORY_CREATED, {
+      artifacts: [{ path: step.output.path }]
+    });
 
     return {
       status: 'succeeded',

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -216,7 +217,14 @@ test('planRuntime executes a valid one-task plan through audit and confidence', 
   const artifactStore = createArtifactStore(runDir);
   writeBaseRuntimeInputs(artifactStore);
   const childCalls: WorkflowStep[] = [];
-  const context = createContext(runDir, childCalls);
+  const context = createContext(runDir, childCalls, {
+    onChildStep: (step, store) => {
+      const input = step.input as { prompt?: string; promptArtifact?: string };
+      if (input.promptArtifact) {
+        store.writeText(input.promptArtifact, `FINAL WRAPPER\n${input.prompt ?? ''}`);
+      }
+    }
+  });
   const executor = new PlanRuntimeStepExecutor(schemaRegistry);
 
   const result = await executor.execute(planRuntimeStep, {
@@ -227,6 +235,9 @@ test('planRuntime executes a valid one-task plan through audit and confidence', 
   }, context);
   const planRun = artifactStore.readJson<PlanRun>('plan-run.json');
   const audit = artifactStore.readJson('audits/summarize/summarize-changes/audit.json');
+  const taskValidation = artifactStore.readJson<{ valid: boolean; checkedArtifacts: string[] }>('tasks/summarize/summarize-changes/validation.json');
+  const provenance = artifactStore.readJson<{ promptSha256?: string; outputHashes: Array<{ path: string; sha256: string }> }>('tasks/summarize/summarize-changes/provenance.json');
+  const finalPrompt = fs.readFileSync(path.join(runDir, 'tasks/summarize/summarize-changes/prompt.md'), 'utf-8');
 
   assert.equal(result.status, 'succeeded');
   assert.equal(planRun?.status, 'succeeded');
@@ -235,6 +246,11 @@ test('planRuntime executes a valid one-task plan through audit and confidence', 
   assert.equal(childCalls[0].type, 'agent');
   assert.match((childCalls[0].input as { prompt: string }).prompt, /Task output contract/);
   assert.equal(audit !== undefined, true);
+  assert.equal(fs.existsSync(path.join(runDir, 'tasks/summarize/summarize-changes/task-prompt.md')), true);
+  assert.equal(taskValidation?.valid, true);
+  assert.equal(fs.existsSync(path.join(runDir, 'tasks/summarize/summarize-changes/status.json')), false);
+  assert.equal(provenance?.promptSha256, crypto.createHash('sha256').update(finalPrompt).digest('hex'));
+  assert.equal(provenance?.outputHashes.some(item => item.path === 'tasks/summarize/summarize-changes/output.md'), true);
   assert.equal(fs.existsSync(path.join(runDir, 'events.jsonl')), true);
   assert.equal(fs.existsSync(path.join(runDir, 'trace.json')), true);
   assert.equal(fs.existsSync(path.join(runDir, 'artifact-lineage.json')), true);
@@ -599,6 +615,95 @@ test('planRuntime maps confidence needsApproval to top-level blocked without suc
   assert.equal(planRun?.status, 'needsApproval');
   assert.equal(planRun?.tasks?.[0].status, 'needsApproval');
   assert.equal(childCalls.length, 1);
+});
+
+test('planRuntime blocks when a task proposes a plan amendment', async () => {
+  const runDir = tempRunDir();
+  const schemaRegistry = createWorkflowSchemaRegistry();
+  const artifactStore = createArtifactStore(runDir);
+  writeBaseRuntimeInputs(artifactStore);
+  const beforePlanHash = crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(runDir, 'plan/master-plan.json')))
+    .digest('hex');
+  const childCalls: WorkflowStep[] = [];
+  const context = createContext(runDir, childCalls, {
+    onChildStep: (_step, store) => {
+      store.writeJson('tasks/summarize/summarize-changes/plan-amendment-proposal.json', {
+        schemaVersion: '1',
+        reason: 'Need another verification task',
+        triggeringEvidence: ['tasks/summarize/summarize-changes/output.md'],
+        changeSummary: 'Add a verification task before completion',
+        affectedStages: ['summarize'],
+        riskChange: 'none',
+        capabilityChanges: [],
+        proposedDiff: {}
+      });
+    }
+  });
+  const executor = new PlanRuntimeStepExecutor(schemaRegistry);
+
+  const result = await executor.execute(planRuntimeStep, {
+    stepRunId: 'execute-plan',
+    definitionId: 'execute-plan',
+    type: 'planRuntime',
+    status: 'running'
+  }, context);
+  const planRun = artifactStore.readJson<PlanRun>('plan-run.json');
+  const statusArtifact = artifactStore.readJson<{ status: string; reason: string }>('tasks/summarize/summarize-changes/status.json');
+  const events = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf-8')
+    .trim()
+    .split(/\r?\n/)
+    .map(line => JSON.parse(line) as { type: string });
+  const afterPlanHash = crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(runDir, 'plan/master-plan.json')))
+    .digest('hex');
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(planRun?.status, 'blocked');
+  assert.equal(statusArtifact?.status, 'blocked');
+  assert.equal(beforePlanHash, afterPlanHash);
+  assert.deepEqual(events.map(event => event.type).filter(type => type === 'plan.amendmentProposed' || type === 'planRuntime.blocked'), [
+    'plan.amendmentProposed',
+    'planRuntime.blocked'
+  ]);
+});
+
+test('planRuntime rejects amendment proposal files outside the canonical path', async () => {
+  const runDir = tempRunDir();
+  const schemaRegistry = createWorkflowSchemaRegistry();
+  const artifactStore = createArtifactStore(runDir);
+  writeBaseRuntimeInputs(artifactStore);
+  const childCalls: WorkflowStep[] = [];
+  const context = createContext(runDir, childCalls, {
+    onChildStep: (_step, store) => {
+      store.writeJson('tasks/summarize/summarize-changes/proposals/plan-amendment-proposal.json', {
+        schemaVersion: '1',
+        reason: 'Wrong path',
+        triggeringEvidence: ['tasks/summarize/summarize-changes/output.md'],
+        changeSummary: 'Move proposal',
+        affectedStages: ['summarize'],
+        riskChange: 'none',
+        capabilityChanges: [],
+        proposedDiff: {}
+      });
+    }
+  });
+  const executor = new PlanRuntimeStepExecutor(schemaRegistry);
+
+  const result = await executor.execute(planRuntimeStep, {
+    stepRunId: 'execute-plan',
+    definitionId: 'execute-plan',
+    type: 'planRuntime',
+    status: 'running'
+  }, context);
+  const planRun = artifactStore.readJson<PlanRun>('plan-run.json');
+  const validation = artifactStore.readJson<{ errors: Array<{ code: string; path: string }> }>('tasks/summarize/summarize-changes/validation.json');
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(planRun?.status, 'blocked');
+  assert.match(planRun?.blockReason ?? '', /must be written only to tasks\/summarize\/summarize-changes\/plan-amendment-proposal\.json/);
+  assert.deepEqual(validation?.errors.map(error => error.code), ['NON_CANONICAL_AMENDMENT_PROPOSAL']);
+  assert.equal(validation?.errors[0].path, 'tasks/summarize/summarize-changes/proposals/plan-amendment-proposal.json');
 });
 
 test('planRuntime blocks approved high-risk plans before task execution in MVP', async () => {

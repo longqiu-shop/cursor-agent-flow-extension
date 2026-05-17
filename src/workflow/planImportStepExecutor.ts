@@ -8,6 +8,7 @@ import { renderTemplate } from './variableResolver';
 import { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecutor } from './workflowRunner';
 import { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 import { TraceStore } from './traceStore';
+import { TRACE_EVENTS } from './traceEvents';
 
 interface PlanImportInput {
   planPath?: string;
@@ -98,7 +99,7 @@ export class PlanImportStepExecutor implements WorkflowStepExecutor {
           { path: validationPath, role: 'importValidation' }
         ]
       });
-      traceStore.append('plan.created', {
+      traceStore.appendTyped(TRACE_EVENTS.PLAN_CREATED, {
         stepId: step.id,
         source: 'planImport',
         artifacts: [{ path: masterPlanPath, role: 'masterPlan' }]

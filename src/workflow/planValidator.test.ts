@@ -220,7 +220,9 @@ test('requires side-effect tasks to declare prior validation evidence', () => {
             id: 'post-comments',
             goal: 'Post validated review comments',
             role: 'poster',
-            outputPurpose: 'sideEffect'
+            outputPurpose: 'sideEffect',
+            evidenceRequired: ['tasks/summarize/post-comments/output.md'],
+            expectedOutputs: [{ path: 'tasks/summarize/post-comments/output.md', format: 'markdown', required: true }]
           }
         ]
       }
@@ -335,5 +337,37 @@ test('rejects unsafe, duplicate, and unknown-schema expected outputs', () => {
     PLAN_VALIDATION_ERROR_CODES.UNSAFE_OUTPUT_PATH,
     PLAN_VALIDATION_ERROR_CODES.UNKNOWN_OUTPUT_SCHEMA,
     PLAN_VALIDATION_ERROR_CODES.DUPLICATE_OUTPUT_PATH
+  ]);
+});
+
+test('rejects amendment proposal outputs outside the canonical task path', () => {
+  const validator = new PlanValidator();
+  const baseTask = validPlan().stages[0].tasks[0];
+  const result = validator.validate(validPlan({
+    stages: [
+      {
+        id: 'summarize',
+        tasks: [
+          {
+            ...baseTask,
+            expectedOutputs: [
+              {
+                path: 'tasks/summarize/summarize-changes/proposals/plan-amendment-proposal.json',
+                format: 'json',
+                schema: 'plan-amendment-proposal@1'
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }), {
+    toolInventory,
+    schemaRegistry: createWorkflowSchemaRegistry()
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.artifact.errors.map(error => error.code), [
+    PLAN_VALIDATION_ERROR_CODES.NON_CANONICAL_AMENDMENT_PROPOSAL
   ]);
 });

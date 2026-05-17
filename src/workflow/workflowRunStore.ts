@@ -28,34 +28,3 @@ export function loadWorkflowRun(runDir: string): WorkflowRun | undefined {
   }
   return readJsonFile<WorkflowRun>(statePath);
 }
-
-export function markInterruptedForRecovery(run: WorkflowRun): WorkflowRun {
-  if (run.status !== 'running') {
-    return run;
-  }
-
-  const updatedSteps = run.steps.map(step => {
-    if (step.status !== 'running') {
-      return step;
-    }
-    return {
-      ...step,
-      status: 'interrupted' as const,
-      finishedAt: new Date().toISOString(),
-      childRuns: step.childRuns?.map(child => child.status === 'running'
-        ? {
-            ...child,
-            status: 'interrupted' as const,
-            finishedAt: new Date().toISOString()
-          }
-        : child)
-    };
-  });
-
-  return {
-    ...run,
-    status: 'interrupted',
-    finishedAt: new Date().toISOString(),
-    steps: updatedSteps
-  };
-}

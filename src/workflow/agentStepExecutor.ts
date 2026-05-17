@@ -7,7 +7,9 @@ import type { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecuto
 import type { ArtifactWaitResult } from './artifactStore';
 import { STEP_STATUS_SCHEMA_ID } from './workflowSchemas';
 import { TraceStore } from './traceStore';
+import { TRACE_EVENTS } from './traceEvents';
 import { sha256 } from './plannerContractResolver';
+import { MASTER_PLAN_SCHEMA_ID } from './planSchemas';
 
 interface AgentStepInput {
   title?: string;
@@ -15,6 +17,10 @@ interface AgentStepInput {
   promptFile?: string;
   freshChat?: boolean;
   submitMode?: 'worktree' | 'currentWorkspace';
+  promptArtifact?: string;
+  statusArtifact?: string;
+  stageId?: string;
+  taskId?: string;
 }
 
 interface AgentPromptRunner {
@@ -81,7 +87,7 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     const title = input?.title ? renderTemplate(input.title, context.variables) : step.name ?? step.id;
     const outputPath = context.artifactStore.resolveArtifactPath(step.output.path, context.variables);
     const statusSpec: ArtifactSpec = {
-      path: `status/${stepRun.stepRunId}.json`,
+      path: input?.statusArtifact ?? `status/${stepRun.stepRunId}.json`,
       format: 'json',
       schema: STEP_STATUS_SCHEMA_ID
     };
@@ -95,9 +101,11 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     const renderedUserPrompt = renderTemplate(promptTemplate.value, context.variables);
     const plannerPromptRefs = this.persistPlannerPromptArtifacts(step, context, traceStore, renderedUserPrompt);
     const prompt = this.buildPrompt(renderedUserPrompt, outputPath, statusPath, step.output.format);
+    const promptArtifactRefs = this.persistFinalPromptArtifact(input, context, traceStore, prompt);
     this.appendSubmissionEvent(traceStore, 'queued', traceRefs, {
       freshChat: input?.freshChat !== false,
-      submitMode: input?.submitMode ?? 'worktree'
+      submitMode: input?.submitMode ?? 'worktree',
+      ...(promptArtifactRefs ? { artifacts: promptArtifactRefs } : {})
     });
 
     let submitResult: AgentSubmitResult;
@@ -137,8 +145,8 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     }
     this.appendSubmissionEvent(traceStore, 'waitingForArtifact', traceRefs, {
       artifacts: [
-        { path: outputPath, role: 'output' },
-        { path: statusPath, role: 'status' }
+        { path: step.output.path, role: 'output' },
+        { path: statusSpec.path, role: 'status' }
       ]
     });
     const waitResult = await this.waitForOutputOrStatus(step.output, statusSpec, context);
@@ -160,7 +168,7 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       this.appendSubmissionEvent(traceStore, 'statusArtifactFound', traceRefs, {
         status: statusArtifact.status,
         reason: statusArtifact.reason,
-        artifacts: [{ path: statusPath, role: 'status' }]
+        artifacts: [{ path: statusSpec.path, role: 'status' }]
       });
       return {
         status: statusArtifact.status === 'blocked' ? 'blocked' : 'failed',
@@ -171,13 +179,42 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     }
 
     this.appendSubmissionEvent(traceStore, 'artifactFound', traceRefs, {
-      artifacts: [{ path: outputPath, role: 'output' }]
+      artifacts: [{ path: step.output.path, role: 'output' }]
     });
+    if (step.output.schema === MASTER_PLAN_SCHEMA_ID) {
+      traceStore.appendTyped(TRACE_EVENTS.PLAN_CREATED, {
+        artifacts: [{ path: step.output.path, role: 'masterPlan' }]
+      });
+    }
     return {
       status: 'succeeded',
       outputArtifact: outputPath,
       output: waitResult.value
     };
+  }
+
+  private persistFinalPromptArtifact(
+    input: AgentStepInput | undefined,
+    context: WorkflowExecutionContext,
+    traceStore: TraceStore,
+    prompt: string
+  ): Array<{ path: string; role: string; hash?: string }> | undefined {
+    if (!input?.promptArtifact) {
+      return undefined;
+    }
+
+    const hash = sha256(prompt);
+    context.artifactStore.writeText(input.promptArtifact, prompt, context.variables);
+    const artifacts = [{ path: input.promptArtifact, role: 'finalSubmittedPrompt', hash }];
+    if (input.stageId && input.taskId) {
+      traceStore.appendTyped(TRACE_EVENTS.AGENT_PROMPTED, {
+        stageId: input.stageId,
+        taskId: input.taskId,
+        promptSha256: hash,
+        artifacts
+      });
+    }
+    return artifacts;
   }
 
   private async waitForOutputOrStatus(
