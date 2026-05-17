@@ -9,18 +9,8 @@ import { SkillRegistry } from '../commands/skillRegistry';
 import { AgentRegistry } from '../commands/agentRegistry';
 import { WorkflowRegistry } from '../workflow/workflowRegistry';
 import { CursorAgentRunner, AgentExecutionResult } from '../agent/cursorAgentRunner';
-import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue';
-import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
 import { WorkflowRunner } from '../workflow/workflowRunner';
-import { AgentStepExecutor } from '../workflow/agentStepExecutor';
-import { ReadJsonStepExecutor } from '../workflow/readJsonStepExecutor';
-import { FanoutStepExecutor } from '../workflow/fanoutStepExecutor';
-import { JoinStepExecutor } from '../workflow/joinStepExecutor';
-import { ToolContextProvider } from '../workflow/toolContextProvider';
-import { ToolInventoryStepExecutor } from '../workflow/toolInventoryStepExecutor';
-import { PlanRuntimeStepExecutor } from '../workflow/planRuntimeStepExecutor';
-import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
-import { getAdditionalMcpDirectories, getDefaultMcpDescriptorDirectory } from '../utils/fileUtils';
+import { WorkflowRunnerFactory } from '../workflow/workflowRunnerFactory';
 import * as vscode from 'vscode';
 
 interface RunningExecution {
@@ -49,9 +39,7 @@ export class ExecutionEngine {
     skillRegistry: SkillRegistry,
     agentRegistry: AgentRegistry,
     workflowRegistry: WorkflowRegistry,
-    runningWorkflowRegistry: RunningWorkflowRegistry,
-    submissionQueue: CursorAgentSubmissionQueue,
-    schemaRegistry: WorkflowSchemaRegistry
+    workflowRunnerFactory: WorkflowRunnerFactory
   ) {
     this.storageManager = storageManager;
     this.commandRegistry = commandRegistry;
@@ -59,41 +47,13 @@ export class ExecutionEngine {
     this.agentRegistry = agentRegistry;
     this.workflowRegistry = workflowRegistry;
     this.agentRunner = new CursorAgentRunner();
-    this.workflowRunner = new WorkflowRunner(
-      runningWorkflowRegistry,
-      schemaRegistry,
-      [
-        new AgentStepExecutor(this.agentRunner, submissionQueue),
-        new ReadJsonStepExecutor(),
-        new FanoutStepExecutor(),
-        new JoinStepExecutor(),
-        new ToolInventoryStepExecutor(ToolContextProvider.fromRegistries({
-          commandRegistry,
-          skillRegistry,
-          agentRegistry,
-          mcpDescriptorDirectories: this.getMcpDescriptorDirectories()
-        })),
-        new PlanRuntimeStepExecutor(schemaRegistry)
-      ]
-    );
+    this.workflowRunner = workflowRunnerFactory.createRunner();
   }
 
   private getEffectiveTargetType(schedule: Schedule): Schedule['targetType'] {
     if (schedule.workflowRef) return 'workflow';
     if (schedule.commandRef) return schedule.targetType;
     return 'prompt';
-  }
-
-  private getMcpDescriptorDirectories(): string[] {
-    try {
-      const defaultDir = getDefaultMcpDescriptorDirectory();
-      return [
-        ...(defaultDir ? [defaultDir] : []),
-        ...getAdditionalMcpDirectories()
-      ];
-    } catch {
-      return getAdditionalMcpDirectories();
-    }
   }
 
   private getContextCommand(schedule: Schedule): Command | undefined {

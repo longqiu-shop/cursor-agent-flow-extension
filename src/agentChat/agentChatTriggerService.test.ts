@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  AgentChatStartRequest,
   AgentChatTriggerResult,
   AgentChatTriggerService,
   listAgentChatRequestFiles
@@ -43,9 +44,10 @@ test('starts workflow for a valid request and writes exact started result', asyn
   });
   const goals: string[] = [];
   const requestIds: Array<string | undefined> = [];
-  const service = new AgentChatTriggerService(async (goal, startedRequestId) => {
-    goals.push(goal);
-    requestIds.push(startedRequestId);
+  const service = new AgentChatTriggerService(async request => {
+    assert.equal(request.type, 'startAgenticWorkflow');
+    goals.push(request.goal);
+    requestIds.push(request.requestId);
     return 'run_123';
   });
 
@@ -59,6 +61,59 @@ test('starts workflow for a valid request and writes exact started result', asyn
     runId: 'run_123'
   });
   assert.deepEqual(readResult(requestsDir, requestId), result);
+});
+
+test('starts ready-plan workflow for a valid plan document request', async t => {
+  const requestsDir = tempRequestsDir(t);
+  const requestId = 'start-agentic-workflow-20260516230011';
+  writeJson(requestPath(requestsDir, requestId), {
+    type: 'startAgenticWorkflowFromPlanDocument',
+    requestId,
+    planPath: '  ~/.cursor/plans/ready-plan.md  ',
+    goal: '  Execute prepared review  '
+  });
+  const requests: AgentChatStartRequest[] = [];
+  const service = new AgentChatTriggerService(request => {
+    requests.push(request);
+    return 'run_plan';
+  });
+
+  const result = await service.processRequestFile(requestPath(requestsDir, requestId));
+
+  assert.deepEqual(requests, [{
+    type: 'startAgenticWorkflowFromPlanDocument',
+    requestId,
+    planPath: '~/.cursor/plans/ready-plan.md',
+    goal: 'Execute prepared review'
+  }]);
+  assert.deepEqual(result, {
+    requestId,
+    status: 'started',
+    runId: 'run_plan'
+  });
+  assert.deepEqual(readResult(requestsDir, requestId), result);
+});
+
+test('rejects ready-plan request without planPath before starting workflow', async t => {
+  const requestsDir = tempRequestsDir(t);
+  const requestId = 'start-agentic-workflow-20260516230012';
+  writeJson(requestPath(requestsDir, requestId), {
+    type: 'startAgenticWorkflowFromPlanDocument',
+    requestId,
+    planPath: '   '
+  });
+  let calls = 0;
+  const service = new AgentChatTriggerService(() => {
+    calls += 1;
+    return 'run_unreachable';
+  });
+
+  const result = await service.processRequestFile(requestPath(requestsDir, requestId));
+
+  assert.equal(calls, 0);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.requestId, requestId);
+  assert.match(result.error ?? '', /planPath must be a non-empty string/);
 });
 
 test('rejects extra top-level fields without starting workflow', async t => {

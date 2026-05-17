@@ -385,3 +385,61 @@ test('rejects invalid planRuntime workflow steps', () => {
     'planRuntime step execute-plan output.schema must be plan-run@1'
   ]);
 });
+
+test('validates planImport workflow steps', () => {
+  const workflow: WorkflowDefinition = {
+    id: 'plan-import-workflow',
+    name: 'Plan Import Workflow',
+    filePath: '.cursor/workflows/plan-import.json',
+    version: 1,
+    steps: [
+      {
+        id: 'import-plan',
+        type: 'planImport',
+        input: {
+          planPath: '{{ trigger.planPath }}'
+        },
+        output: {
+          path: 'plan/master-plan.json',
+          format: 'json',
+          schema: 'master-plan@1'
+        }
+      }
+    ]
+  };
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects invalid planImport workflow steps', () => {
+  const workflow: WorkflowDefinition = {
+    id: 'plan-import-workflow',
+    name: 'Plan Import Workflow',
+    filePath: '.cursor/workflows/plan-import.json',
+    version: 1,
+    steps: [
+      {
+        id: 'import-plan',
+        type: 'planImport',
+        input: {},
+        output: {
+          path: 'plan/master-plan.md',
+          format: 'markdown',
+          schema: 'tool-inventory@1'
+        }
+      }
+    ]
+  };
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, [
+    'planImport step import-plan input.planPath is required',
+    'planImport step import-plan output.format must be json',
+    'planImport step import-plan output.schema must be master-plan@1'
+  ]);
+});

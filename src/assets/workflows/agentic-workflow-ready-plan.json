@@ -1,0 +1,50 @@
+{
+  "id": "agentic-workflow-ready-plan",
+  "name": "Agentic Workflow Ready Plan",
+  "description": "Import an existing master plan document, build tool inventory, then execute it with the plan runtime.",
+  "version": 1,
+  "defaults": {
+    "timeoutSeconds": 900,
+    "onStepFailure": "stop"
+  },
+  "steps": [
+    {
+      "id": "import-plan",
+      "type": "planImport",
+      "input": {
+        "planPath": "{{ trigger.planPath }}"
+      },
+      "output": {
+        "path": "plan/master-plan.json",
+        "format": "json",
+        "schema": "master-plan@1"
+      }
+    },
+    {
+      "id": "inventory",
+      "type": "toolInventory",
+      "input": {
+        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions", "mcpTools"]
+      },
+      "output": {
+        "path": "tool-inventory.json",
+        "format": "json",
+        "schema": "tool-inventory@1"
+      }
+    },
+    {
+      "id": "execute-plan",
+      "type": "planRuntime",
+      "input": {
+        "planArtifact": "{{ steps.import-plan.outputArtifact }}",
+        "toolInventoryArtifact": "{{ steps.inventory.outputArtifact }}",
+        "allowedCapabilities": ["read", "workspaceWrite"]
+      },
+      "output": {
+        "path": "plan-run.json",
+        "format": "json",
+        "schema": "plan-run@1"
+      }
+    }
+  ]
+}

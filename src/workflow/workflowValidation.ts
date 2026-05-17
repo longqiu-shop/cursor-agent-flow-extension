@@ -2,7 +2,7 @@ import * as path from 'path';
 import { ArtifactSpec, WorkflowDefinition, WorkflowStep } from '../types';
 import { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 
-const WORKFLOW_STEP_TYPES = new Set(['agent', 'readJson', 'fanout', 'join', 'toolInventory', 'planRuntime']);
+const WORKFLOW_STEP_TYPES = new Set(['agent', 'readJson', 'fanout', 'join', 'toolInventory', 'planRuntime', 'planImport']);
 
 export interface WorkflowValidationResult {
   valid: boolean;
@@ -119,6 +119,9 @@ function validateStepInput(workflow: WorkflowDefinition, step: WorkflowStep, sch
     case 'planRuntime':
       errors.push(...validatePlanRuntimeStep(step, input, schemaRegistry));
       break;
+    case 'planImport':
+      errors.push(...validatePlanImportStep(step, input, schemaRegistry));
+      break;
   }
 
   return errors;
@@ -183,6 +186,33 @@ function validatePlanRuntimeStep(
     errors.push(`planRuntime step ${step.id} output.schema must be plan-run@1`);
   } else {
     errors.push(...validateSchemaId(step.output.schema, `planRuntime step ${step.id} output.schema`, schemaRegistry));
+  }
+
+  return errors;
+}
+
+function validatePlanImportStep(
+  step: WorkflowStep,
+  input: Record<string, unknown>,
+  schemaRegistry?: WorkflowSchemaRegistry
+): string[] {
+  const errors: string[] = [];
+  if (typeof input.planPath !== 'string' || input.planPath.trim().length === 0) {
+    errors.push(`planImport step ${step.id} input.planPath is required`);
+  }
+
+  if (!step.output) {
+    errors.push(`planImport step ${step.id} output is required`);
+    return errors;
+  }
+
+  if (step.output.format !== 'json') {
+    errors.push(`planImport step ${step.id} output.format must be json`);
+  }
+  if (step.output.schema !== 'master-plan@1') {
+    errors.push(`planImport step ${step.id} output.schema must be master-plan@1`);
+  } else {
+    errors.push(...validateSchemaId(step.output.schema, `planImport step ${step.id} output.schema`, schemaRegistry));
   }
 
   return errors;

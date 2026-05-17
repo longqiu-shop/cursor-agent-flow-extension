@@ -37,6 +37,22 @@ test('validates the extension-owned agentic workflow bootstrap asset', () => {
   assert.equal(workflow.steps[1].input?.promptFile, '../prompts/agentic-workflow-planner.md');
 });
 
+test('validates the extension-owned ready-plan workflow asset', () => {
+  const workflowPath = path.resolve(process.cwd(), 'src/assets/workflows/agentic-workflow-ready-plan.json');
+  const workflow = {
+    ...JSON.parse(fs.readFileSync(workflowPath, 'utf-8')),
+    filePath: workflowPath
+  } as WorkflowDefinition;
+
+  const result = validateWorkflowDefinition(workflow, createWorkflowSchemaRegistry());
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(workflow.steps.map(step => step.type), ['planImport', 'toolInventory', 'planRuntime']);
+  assert.equal(workflow.steps[0].input?.planPath, '{{ trigger.planPath }}');
+  assert.equal(workflow.steps[2].input?.planArtifact, '{{ steps.import-plan.outputArtifact }}');
+});
+
 test('copies extension-owned workflow assets into package output', () => {
   const manifest = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8')) as {
     scripts: Record<string, string>;

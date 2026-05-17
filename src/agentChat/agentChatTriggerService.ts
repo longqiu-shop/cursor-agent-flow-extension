@@ -5,6 +5,7 @@ import * as path from 'path';
 export const AGENT_CHAT_REQUESTS_DIR = '.cursor/agent-flow-requests';
 export const GLOBAL_AGENT_CHAT_REQUESTS_DIR = path.join(os.homedir(), '.cursor', 'agent-flow-requests');
 export const START_AGENTIC_WORKFLOW_REQUEST_TYPE = 'startAgenticWorkflow';
+export const START_AGENTIC_WORKFLOW_FROM_PLAN_DOCUMENT_REQUEST_TYPE = 'startAgenticWorkflowFromPlanDocument';
 
 export type AgentChatTriggerStatus = 'started' | 'failed' | 'ignored';
 
@@ -15,10 +16,25 @@ export interface AgentChatTriggerResult {
   error?: string;
 }
 
-type StartAgenticWorkflow = (goal: string, requestId?: string) => Promise<string>;
+export type AgentChatStartRequest =
+  | {
+      type: typeof START_AGENTIC_WORKFLOW_REQUEST_TYPE;
+      requestId: string;
+      goal: string;
+    }
+  | {
+      type: typeof START_AGENTIC_WORKFLOW_FROM_PLAN_DOCUMENT_REQUEST_TYPE;
+      requestId: string;
+      planPath: string;
+      goal?: string;
+    };
+
+type StartAgenticWorkflow = (request: AgentChatStartRequest) => Promise<string> | string;
 
 const REQUEST_ID_PATTERN = /^start-agentic-workflow-\d{14}$/;
-const REQUEST_KEYS = ['goal', 'requestId', 'type'];
+const GOAL_REQUEST_KEYS = ['goal', 'requestId', 'type'];
+const PLAN_REQUEST_KEYS = ['planPath', 'requestId', 'type'];
+const PLAN_REQUEST_WITH_GOAL_KEYS = ['goal', 'planPath', 'requestId', 'type'];
 
 export function listAgentChatRequestFiles(directory: string): string[] {
   try {
@@ -55,7 +71,7 @@ export class AgentChatTriggerService {
       });
     }
 
-    const { requestId, goal } = validation.request;
+    const { requestId } = validation.request;
     if (this.processedRequestIds.has(requestId)) {
       return {
         requestId,
@@ -74,7 +90,7 @@ export class AgentChatTriggerService {
     this.processedRequestIds.add(requestId);
 
     try {
-      const runId = await this.startAgenticWorkflow(goal, requestId);
+      const runId = await this.startAgenticWorkflow(validation.request);
       if (!runId || runId.trim().length === 0) {
         throw new Error('Workflow start returned an empty run id');
       }
@@ -93,7 +109,7 @@ export class AgentChatTriggerService {
   }
 
   private readAndValidateRequest(filePath: string, expectedRequestId: string): (
-    | { ok: true; request: { requestId: string; goal: string } }
+    | { ok: true; request: AgentChatStartRequest }
     | { ok: false; error: string }
   ) {
     let parsed: unknown;
@@ -110,15 +126,23 @@ export class AgentChatTriggerService {
       return { ok: false, error: 'Request must be a JSON object' };
     }
 
-    const keys = Object.keys(parsed).sort();
-    if (!this.sameKeys(keys, REQUEST_KEYS)) {
-      return {
-        ok: false,
-        error: `Request must contain exactly these top-level fields: ${REQUEST_KEYS.join(', ')}`
-      };
-    }
-
-    if (parsed.type !== START_AGENTIC_WORKFLOW_REQUEST_TYPE) {
+    if (parsed.type === START_AGENTIC_WORKFLOW_REQUEST_TYPE) {
+      const keys = Object.keys(parsed).sort();
+      if (!this.sameKeys(keys, GOAL_REQUEST_KEYS)) {
+        return {
+          ok: false,
+          error: `Request must contain exactly these top-level fields: ${GOAL_REQUEST_KEYS.join(', ')}`
+        };
+      }
+    } else if (parsed.type === START_AGENTIC_WORKFLOW_FROM_PLAN_DOCUMENT_REQUEST_TYPE) {
+      const keys = Object.keys(parsed).sort();
+      if (!this.sameKeys(keys, PLAN_REQUEST_KEYS) && !this.sameKeys(keys, PLAN_REQUEST_WITH_GOAL_KEYS)) {
+        return {
+          ok: false,
+          error: `Ready-plan request must contain exactly these top-level fields: ${PLAN_REQUEST_KEYS.join(', ')} or ${PLAN_REQUEST_WITH_GOAL_KEYS.join(', ')}`
+        };
+      }
+    } else {
       return {
         ok: false,
         error: `Unsupported request type: ${String(parsed.type)}`
@@ -141,15 +165,34 @@ export class AgentChatTriggerService {
       };
     }
 
-    if (typeof parsed.goal !== 'string' || parsed.goal.trim().length === 0) {
-      return { ok: false, error: 'goal must be a non-empty string' };
+    if (parsed.type === START_AGENTIC_WORKFLOW_REQUEST_TYPE) {
+      if (typeof parsed.goal !== 'string' || parsed.goal.trim().length === 0) {
+        return { ok: false, error: 'goal must be a non-empty string' };
+      }
+
+      return {
+        ok: true,
+        request: {
+          type: START_AGENTIC_WORKFLOW_REQUEST_TYPE,
+          requestId: parsed.requestId,
+          goal: parsed.goal.trim()
+        }
+      };
     }
 
+    if (typeof parsed.planPath !== 'string' || parsed.planPath.trim().length === 0) {
+      return { ok: false, error: 'planPath must be a non-empty string' };
+    }
+    if (parsed.goal !== undefined && (typeof parsed.goal !== 'string' || parsed.goal.trim().length === 0)) {
+      return { ok: false, error: 'goal must be a non-empty string when provided' };
+    }
     return {
       ok: true,
       request: {
+        type: START_AGENTIC_WORKFLOW_FROM_PLAN_DOCUMENT_REQUEST_TYPE,
         requestId: parsed.requestId,
-        goal: parsed.goal.trim()
+        planPath: parsed.planPath.trim(),
+        ...(typeof parsed.goal === 'string' ? { goal: parsed.goal.trim() } : {})
       }
     };
   }
