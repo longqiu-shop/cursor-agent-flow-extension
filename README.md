@@ -13,6 +13,7 @@ The extension is designed for local Cursor automation. It stores schedules in th
 - Load Cursor skills from `.cursor/skills`, `~/.cursor/skills-cursor`, and configured extra directories.
 - Load agent definitions from `.cursor/agents`, `~/.cursor/agents`, and configured extra directories.
 - Run JSON workflow definitions from `.cursor/workflows`.
+- Start an agentic workflow MVP that builds a tool inventory, asks a planner agent for a master plan, and executes that plan through the runtime.
 - Track run history in workspace state.
 - Inspect, open, and cancel active workflow runs.
 
@@ -91,7 +92,7 @@ pnpm run lint
 Then the test script runs:
 
 ```bash
-node --test out/workflow/*.test.js
+node --test out/workflow/*.test.js out/ui/*.test.js
 ```
 
 ## Extension Commands
@@ -110,6 +111,7 @@ The extension contributes these command palette commands:
 | `Agent Schedules: Inspect Workflow Run` | Show workflow run and step details. |
 | `Agent Schedules: Open Workflow Run Folder` | Reveal a workflow run artifact folder. |
 | `Agent Schedules: Cancel Workflow Run` | Cancel a cancellable workflow run. |
+| `Agent Schedules: Start Agentic Workflow` | Prompt for a goal and start the agentic workflow bootstrap. |
 | `Agent Schedules: Reload Commands` | Reload commands, skills, agents, and workflows. |
 | `Agent Schedules: Test Execution` | Submit a quick test prompt to Cursor. |
 
@@ -223,6 +225,8 @@ Supported workflow step types:
 | `readJson` | Read a JSON artifact, optionally validate it, and select a nested value. |
 | `fanout` | Iterate over an array and run one or more child workflow steps for each item. |
 | `join` | Collect matching artifact files and write a Markdown index. |
+| `toolInventory` | Snapshot available commands, skills, agents, workflow primitives, and runtime actions. |
+| `planRuntime` | Validate and execute a planner-produced `master-plan.json`. |
 
 Workflow templates use double braces, for example `{{item.number}}`, `{{index}}`, `{{run.dir}}`, and `{{steps.scan.output}}`. Inline schedule prompt templates use single-brace date/time variables such as `{date}`.
 
@@ -294,6 +298,80 @@ Example workflow:
 ```
 
 Agent workflow steps append an output contract to the submitted prompt. The agent must write its complete result to the requested `.tmp` artifact path and then rename it to the final artifact path. If it cannot continue without human input, it can write a status artifact marking the step as blocked.
+
+## Agentic Workflow MVP
+
+The MVP agentic workflow is an ad-hoc workflow runtime layered on top of the static workflow engine. It is intended for local IDE execution.
+
+Trigger it from the command palette:
+
+```text
+Agent Schedules: Start Agentic Workflow
+```
+
+The command prompts for a goal, creates an ad-hoc workflow schedule, and runs:
+
+```text
+.cursor/workflows/agentic-workflow-bootstrap.json
+```
+
+The bootstrap flow is:
+
+```text
+toolInventory -> planner -> planRuntime
+```
+
+- `toolInventory` writes `tool-inventory.json`.
+- `planner` reads `.cursor/workflows/agentic-workflow-planner.md` and writes loose planner JSON to `plan/master-plan.json`.
+- `planRuntime` validates the plan, writes authoritative state to `plan-run.json`, creates per-task input context, executes agent tasks, validates declared outputs, writes deterministic audit artifacts, and emits trace artifacts.
+
+There is also a project skill wrapper:
+
+```text
+.cursor/skills/start-agentic-workflow/SKILL.md
+```
+
+Use it from Cursor chat when asking to start, trigger, or run an agentic workflow. If the chat agent cannot invoke VS Code commands directly, the skill instructs the user to run `Agent Schedules: Start Agentic Workflow` manually.
+
+Agentic workflow runs write artifacts under:
+
+```text
+.cursor/agent-runs/<run-id>/
+```
+
+Important artifacts include:
+
+| Artifact | Purpose |
+| --- | --- |
+| `tool-inventory.json` | Snapshot of available skills, agents, commands, workflow primitives, and runtime actions. |
+| `plan/master-plan.json` | Planner-authored master plan. |
+| `plan/plan-validation.json` | Structured validation result for the master plan. |
+| `plan-run.json` | Authoritative dynamic runtime state. |
+| `tasks/<stage-id>/<task-id>/input-context.json` | Declaration-only memory and tool context for a task. |
+| `tasks/<stage-id>/<task-id>/output.*` | Declared task output artifacts. |
+| `audits/<stage-id>/<task-id>/audit.json` | Deterministic audit result used by the confidence gate. |
+| `events.jsonl` | Append-only trace event log. |
+| `trace.json` | Rebuildable trace index used by run inspection UI. |
+| `artifact-lineage.json` | Rebuildable artifact lineage index. |
+| `decision-log.md` | Human-readable decision timeline. |
+
+Manual smoke test:
+
+1. Open this repository in an Extension Development Host.
+2. Run `Agent Schedules: Start Agentic Workflow`.
+3. Enter a small goal, for example `Summarize today's git changes`.
+4. Wait for the planner and runtime agent prompts to complete.
+5. Open the Agent Schedules view and inspect the workflow run.
+6. Open the run folder and verify `tool-inventory.json`, `plan/master-plan.json`, `plan-run.json`, `events.jsonl`, and `trace.json` exist.
+
+MVP limitations:
+
+- No crash resume.
+- No automatic replanning or plan amendment application.
+- No MCP tool execution; MCP-style integrations are future work.
+- Confidence is deterministic pass/fail, not a numeric score.
+- Cursor IDE agent tool usage is not directly observable, so trace events record runtime-selected tools and artifacts, not internal Cursor tool calls.
+- Real end-to-end execution must be smoke-tested in a live Cursor extension host.
 
 ## Project Layout
 
