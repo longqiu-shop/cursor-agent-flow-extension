@@ -6,23 +6,43 @@ import { CURSOR_CONTEXT_DIRS, directoryExists, getAllWorkspaceFolders, listFiles
 import { validateWorkflowDefinition } from './workflowValidation';
 import { createWorkflowSchemaRegistry } from './workflowSchemas';
 import { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
+import {
+  createPlannerContractMetadata,
+  getExtensionDefaultWorkflowDirectories,
+  PlannerContractSource
+} from './plannerContractResolver';
 
 const WORKFLOWS_DIR = CURSOR_CONTEXT_DIRS.WORKFLOWS;
+
+interface WorkflowDirectory {
+  path: string;
+  source: PlannerContractSource;
+}
 
 interface WorkflowRegistryError {
   filePath: string;
   errors: string[];
 }
 
+export interface WorkflowRegistryOptions {
+  extensionPath?: string;
+  extensionVersion?: string;
+  now?: () => string;
+}
+
 export class WorkflowRegistry implements vscode.Disposable {
   private workflowsByRef: Map<string, WorkflowDefinition> = new Map();
   private workflowIds: Map<string, string> = new Map();
+  private workflowSources: Map<string, PlannerContractSource> = new Map();
   private errors: WorkflowRegistryError[] = [];
   private watchers: vscode.FileSystemWatcher[] = [];
   private onDidChangeEmitter = new vscode.EventEmitter<void>();
   public readonly onDidChange = this.onDidChangeEmitter.event;
 
-  constructor(private readonly schemaRegistry: WorkflowSchemaRegistry = createWorkflowSchemaRegistry()) {
+  constructor(
+    private readonly schemaRegistry: WorkflowSchemaRegistry = createWorkflowSchemaRegistry(),
+    private readonly options: WorkflowRegistryOptions = {}
+  ) {
     this.reload();
     this.watch();
   }
@@ -30,20 +50,21 @@ export class WorkflowRegistry implements vscode.Disposable {
   reload(): void {
     this.workflowsByRef.clear();
     this.workflowIds.clear();
+    this.workflowSources.clear();
     this.errors = [];
     this.schemaRegistry.clearJsonSchemas();
 
     const workflowDirectories = this.getWorkflowDirectories();
-    console.log(`[WorkflowRegistry] Reloading workflows from ${workflowDirectories.length} directorie(s): ${workflowDirectories.join(', ')}`);
+    console.log(`[WorkflowRegistry] Reloading workflows from ${workflowDirectories.length} directorie(s): ${workflowDirectories.map(dir => dir.path).join(', ')}`);
     for (const workflowsDir of workflowDirectories) {
-      this.loadWorkflowSchemas(workflowsDir);
+      this.loadWorkflowSchemas(workflowsDir.path);
     }
     for (const workflowsDir of workflowDirectories) {
-      for (const filePath of listFiles(workflowsDir, '.json')) {
+      for (const filePath of listFiles(workflowsDir.path, '.json')) {
         if (filePath.endsWith('.schema.json')) {
           continue;
         }
-        this.loadWorkflowFile(filePath);
+        this.loadWorkflowFile(filePath, workflowsDir.source);
       }
     }
     console.log(
@@ -85,6 +106,11 @@ export class WorkflowRegistry implements vscode.Disposable {
     return Array.from(this.workflowsByRef.values());
   }
 
+  getById(workflowId: string): WorkflowDefinition | undefined {
+    const filePath = this.workflowIds.get(workflowId);
+    return filePath ? this.workflowsByRef.get(this.key(filePath, workflowId)) : undefined;
+  }
+
   getErrors(): WorkflowRegistryError[] {
     return this.errors.map(error => ({
       filePath: error.filePath,
@@ -92,7 +118,7 @@ export class WorkflowRegistry implements vscode.Disposable {
     }));
   }
 
-  private loadWorkflowFile(filePath: string): void {
+  private loadWorkflowFile(filePath: string, source: PlannerContractSource): void {
     const parsed = readJsonFile<Omit<WorkflowDefinition, 'filePath'> & { filePath?: string }>(filePath);
     if (!parsed) {
       this.errors.push({
@@ -110,6 +136,11 @@ export class WorkflowRegistry implements vscode.Disposable {
     const validation = validateWorkflowDefinition(workflow, this.schemaRegistry);
     const existingFile = this.workflowIds.get(workflow.id);
     if (existingFile && existingFile !== filePath) {
+      const existingSource = this.workflowSources.get(existingFile);
+      if (source === 'extension-default' && existingSource === 'project-override') {
+        console.log(`[WorkflowRegistry] Skipping extension default workflow ${workflow.id}; project override exists at ${existingFile}`);
+        return;
+      }
       validation.errors.push(`Duplicate workflow id "${workflow.id}" already declared in ${existingFile}`);
     }
 
@@ -122,8 +153,11 @@ export class WorkflowRegistry implements vscode.Disposable {
       return;
     }
 
+    const workflowWithPlannerContract = this.attachPlannerContract(workflow, source);
+
     this.workflowIds.set(workflow.id, filePath);
-    this.workflowsByRef.set(this.key(filePath, workflow.id), workflow);
+    this.workflowSources.set(filePath, source);
+    this.workflowsByRef.set(this.key(filePath, workflow.id), workflowWithPlannerContract);
     console.log(`[WorkflowRegistry] Registered workflow ${workflow.id} from ${filePath}`);
   }
 
@@ -166,15 +200,31 @@ export class WorkflowRegistry implements vscode.Disposable {
     return files;
   }
 
-  private getWorkflowDirectories(): string[] {
-    const dirs: string[] = [];
+  private getWorkflowDirectories(): WorkflowDirectory[] {
+    const dirs: WorkflowDirectory[] = [];
     for (const workspacePath of getAllWorkspaceFolders()) {
       const workflowsDir = path.join(workspacePath, WORKFLOWS_DIR);
       if (directoryExists(workflowsDir)) {
-        dirs.push(workflowsDir);
+        dirs.push({ path: workflowsDir, source: 'project-override' });
+      }
+    }
+    if (this.options.extensionPath) {
+      for (const workflowsDir of getExtensionDefaultWorkflowDirectories(this.options.extensionPath)) {
+        if (directoryExists(workflowsDir)) {
+          dirs.push({ path: workflowsDir, source: 'extension-default' });
+        }
       }
     }
     return dirs;
+  }
+
+  private attachPlannerContract(workflow: WorkflowDefinition, source: PlannerContractSource): WorkflowDefinition {
+    const plannerContract = createPlannerContractMetadata(workflow, {
+      source,
+      extensionVersion: this.options.extensionVersion,
+      now: this.options.now
+    });
+    return plannerContract ? { ...workflow, plannerContract } : workflow;
   }
 
   private watch(): void {

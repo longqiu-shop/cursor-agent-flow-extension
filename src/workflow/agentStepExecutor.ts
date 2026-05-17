@@ -7,6 +7,7 @@ import type { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecuto
 import type { ArtifactWaitResult } from './artifactStore';
 import { STEP_STATUS_SCHEMA_ID } from './workflowSchemas';
 import { TraceStore } from './traceStore';
+import { sha256 } from './plannerContractResolver';
 
 interface AgentStepInput {
   title?: string;
@@ -91,7 +92,9 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
 
     const traceStore = new TraceStore(context.run.runDir);
     const traceRefs = this.buildTraceRefs(step, stepRun, title, outputPath, statusPath);
-    const prompt = this.buildPrompt(renderTemplate(promptTemplate.value, context.variables), outputPath, statusPath, step.output.format);
+    const renderedUserPrompt = renderTemplate(promptTemplate.value, context.variables);
+    const plannerPromptRefs = this.persistPlannerPromptArtifacts(step, context, traceStore, renderedUserPrompt);
+    const prompt = this.buildPrompt(renderedUserPrompt, outputPath, statusPath, step.output.format);
     this.appendSubmissionEvent(traceStore, 'queued', traceRefs, {
       freshChat: input?.freshChat !== false,
       submitMode: input?.submitMode ?? 'worktree'
@@ -129,6 +132,9 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     }
 
     this.appendSubmissionEvent(traceStore, 'submitted', traceRefs);
+    if (plannerPromptRefs) {
+      traceStore.append('planner.promptSubmitted', plannerPromptRefs);
+    }
     this.appendSubmissionEvent(traceStore, 'waitingForArtifact', traceRefs, {
       artifacts: [
         { path: outputPath, role: 'output' },
@@ -332,6 +338,47 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     });
   }
 
+  private persistPlannerPromptArtifacts(
+    step: WorkflowStep,
+    context: WorkflowExecutionContext,
+    traceStore: TraceStore,
+    renderedPrompt: string
+  ): Record<string, unknown> | undefined {
+    const plannerContract = context.workflow.plannerContract;
+    if (step.id !== 'planner' || !plannerContract) {
+      return undefined;
+    }
+
+    const plannerDir = path.join(context.run.runDir, 'planner');
+    const promptPath = path.join(plannerDir, 'prompt.md');
+    const metadataPath = path.join(plannerDir, 'prompt-metadata.json');
+    const promptHash = sha256(renderedPrompt);
+    const metadata = {
+      ...plannerContract,
+      renderedPromptSha256: promptHash,
+      artifacts: {
+        prompt: 'planner/prompt.md',
+        metadata: 'planner/prompt-metadata.json'
+      }
+    };
+
+    fs.mkdirSync(plannerDir, { recursive: true });
+    fs.writeFileSync(promptPath, renderedPrompt, 'utf-8');
+    fs.writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, 'utf-8');
+
+    const refs = {
+      ...plannerContract,
+      renderedPromptSha256: promptHash,
+      artifacts: [
+        { path: 'planner/prompt.md', role: 'plannerPrompt', hash: promptHash },
+        { path: 'planner/prompt-metadata.json', role: 'plannerPromptMetadata' }
+      ]
+    };
+    traceStore.append('planner.contractResolved', refs);
+    traceStore.append('planner.promptRendered', refs);
+    return refs;
+  }
+
   private readFileSafe(filePath: string): string | undefined {
     try {
       return fs.readFileSync(filePath, 'utf-8');
@@ -347,7 +394,18 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
 
     const normalized = path.normalize(promptFile);
     if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.includes(`${path.sep}..${path.sep}`)) {
-      throw new Error(`agent promptFile must not traverse outside the workflow directory: ${promptFile}`);
+      const workflowDir = path.dirname(workflowFilePath);
+      const assetsDir = path.dirname(workflowDir);
+      const resolvedPromptPath = path.resolve(workflowDir, normalized);
+      const relativeToAssets = path.relative(assetsDir, resolvedPromptPath);
+      const allowedExtensionAssetPath = path.basename(workflowDir) === 'workflows'
+        && path.basename(assetsDir) === 'assets'
+        && relativeToAssets.length > 0
+        && !relativeToAssets.startsWith('..')
+        && !path.isAbsolute(relativeToAssets);
+      if (!allowedExtensionAssetPath) {
+        throw new Error(`agent promptFile must not traverse outside the workflow directory: ${promptFile}`);
+      }
     }
 
     return path.resolve(path.dirname(workflowFilePath), promptFile);

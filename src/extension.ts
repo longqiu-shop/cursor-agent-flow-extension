@@ -43,7 +43,12 @@ export function activate(context: vscode.ExtensionContext) {
   skillRegistry = new SkillRegistry();
   agentRegistry = new AgentRegistry();
   workflowSchemaRegistry = createWorkflowSchemaRegistry();
-  workflowRegistry = new WorkflowRegistry(workflowSchemaRegistry);
+  workflowRegistry = new WorkflowRegistry(workflowSchemaRegistry, {
+    extensionPath: context.extensionPath,
+    extensionVersion: typeof context.extension.packageJSON?.version === 'string'
+      ? context.extension.packageJSON.version
+      : undefined
+  });
   runningWorkflowRegistry = new RunningWorkflowRegistry();
   submissionQueue = new CursorAgentSubmissionQueue();
   schedulerService = new SchedulerService(

@@ -222,7 +222,8 @@
   },
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && pnpm run copy:assets",
+    "copy:assets": "node -e \"const fs=require('fs');fs.rmSync('out/assets',{recursive:true,force:true});fs.cpSync('src/assets','out/assets',{recursive:true});\"",
     "watch": "tsc -watch -p ./",
     "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --sourcemap",
     "pretest": "pnpm run clean && pnpm run compile && pnpm run lint",

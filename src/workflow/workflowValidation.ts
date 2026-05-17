@@ -31,7 +31,7 @@ export function validateWorkflowDefinition(workflow: WorkflowDefinition, schemaR
   if (!Array.isArray(workflow.steps) || workflow.steps.length === 0) {
     errors.push(`Workflow ${workflow.id || '<unknown>'} must define at least one step`);
   } else {
-    errors.push(...validateSteps(workflow.steps, schemaRegistry));
+    errors.push(...validateSteps(workflow, workflow.steps, schemaRegistry));
   }
 
   return {
@@ -40,7 +40,7 @@ export function validateWorkflowDefinition(workflow: WorkflowDefinition, schemaR
   };
 }
 
-function validateSteps(steps: WorkflowStep[], schemaRegistry?: WorkflowSchemaRegistry): string[] {
+function validateSteps(workflow: WorkflowDefinition, steps: WorkflowStep[], schemaRegistry?: WorkflowSchemaRegistry): string[] {
   const errors: string[] = [];
   const stepIds = new Set<string>();
 
@@ -67,13 +67,13 @@ function validateSteps(steps: WorkflowStep[], schemaRegistry?: WorkflowSchemaReg
       errors.push(...validateArtifactSpec(step.output, `step ${step.id}`, schemaRegistry));
     }
 
-    errors.push(...validateStepInput(step, schemaRegistry));
+    errors.push(...validateStepInput(workflow, step, schemaRegistry));
   }
 
   return errors;
 }
 
-function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRegistry): string[] {
+function validateStepInput(workflow: WorkflowDefinition, step: WorkflowStep, schemaRegistry?: WorkflowSchemaRegistry): string[] {
   const errors: string[] = [];
   const input = step.input ?? {};
 
@@ -82,7 +82,7 @@ function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRe
       if (typeof input.title !== 'string' || input.title.trim().length === 0) {
         errors.push(`Agent step ${step.id} input.title is required`);
       }
-      errors.push(...validateAgentPromptInput(step, input));
+      errors.push(...validateAgentPromptInput(workflow, step, input));
       break;
     case 'readJson':
       if (typeof input.path !== 'string' || input.path.trim().length === 0) {
@@ -101,7 +101,7 @@ function validateStepInput(step: WorkflowStep, schemaRegistry?: WorkflowSchemaRe
       if (typeof input.itemsFrom !== 'string' || input.itemsFrom.trim().length === 0) {
         errors.push(`fanout step ${step.id} input.itemsFrom is required`);
       }
-      errors.push(...validateFanoutChildSteps(step, input, schemaRegistry));
+      errors.push(...validateFanoutChildSteps(workflow, step, input, schemaRegistry));
       break;
     case 'join':
       if (typeof input.from !== 'string' || input.from.trim().length === 0) {
@@ -188,7 +188,7 @@ function validatePlanRuntimeStep(
   return errors;
 }
 
-function validateAgentPromptInput(step: WorkflowStep, input: Record<string, unknown>): string[] {
+function validateAgentPromptInput(workflow: WorkflowDefinition, step: WorkflowStep, input: Record<string, unknown>): string[] {
   const errors: string[] = [];
   const hasPrompt = input.prompt !== undefined;
   const hasPromptFile = input.promptFile !== undefined;
@@ -208,7 +208,7 @@ function validateAgentPromptInput(step: WorkflowStep, input: Record<string, unkn
     if (typeof input.promptFile !== 'string' || input.promptFile.trim().length === 0) {
       errors.push(`Agent step ${step.id} input.promptFile must be a non-empty string`);
     } else {
-      errors.push(...validateWorkflowRelativePath(input.promptFile, `Agent step ${step.id} input.promptFile`));
+      errors.push(...validateWorkflowRelativePath(input.promptFile, `Agent step ${step.id} input.promptFile`, workflow.filePath));
     }
     return errors;
   }
@@ -218,6 +218,7 @@ function validateAgentPromptInput(step: WorkflowStep, input: Record<string, unkn
 }
 
 function validateFanoutChildSteps(
+  workflow: WorkflowDefinition,
   step: WorkflowStep,
   input: Record<string, unknown>,
   schemaRegistry?: WorkflowSchemaRegistry
@@ -235,7 +236,7 @@ function validateFanoutChildSteps(
     if (!isWorkflowStep(input.step)) {
       return [`fanout step ${step.id} input.step must be a workflow step`];
     }
-    return validateFanoutStepList(step.id, [input.step], schemaRegistry);
+    return validateFanoutStepList(workflow, step.id, [input.step], schemaRegistry);
   }
 
   if (hasSteps) {
@@ -245,7 +246,7 @@ function validateFanoutChildSteps(
     if (!input.steps.every(isWorkflowStep)) {
       return [`fanout step ${step.id} input.steps must contain only workflow steps`];
     }
-    return validateFanoutStepList(step.id, input.steps, schemaRegistry);
+    return validateFanoutStepList(workflow, step.id, input.steps, schemaRegistry);
   }
 
   errors.push(`fanout step ${step.id} input.step or input.steps is required`);
@@ -253,6 +254,7 @@ function validateFanoutChildSteps(
 }
 
 function validateFanoutStepList(
+  workflow: WorkflowDefinition,
   fanoutStepId: string,
   childSteps: WorkflowStep[],
   schemaRegistry?: WorkflowSchemaRegistry
@@ -262,7 +264,7 @@ function validateFanoutStepList(
     errors.push(`Nested fanout is not supported in step ${fanoutStepId}`);
     return errors;
   }
-  errors.push(...validateSteps(childSteps, schemaRegistry));
+  errors.push(...validateSteps(workflow, childSteps, schemaRegistry));
   return errors;
 }
 
@@ -312,7 +314,7 @@ export function validateArtifactPath(artifactPath: string, label = 'artifact pat
   return errors;
 }
 
-function validateWorkflowRelativePath(filePath: string, label: string): string[] {
+function validateWorkflowRelativePath(filePath: string, label: string, workflowFilePath?: string): string[] {
   const errors: string[] = [];
 
   if (!filePath || filePath.trim().length === 0) {
@@ -326,10 +328,26 @@ function validateWorkflowRelativePath(filePath: string, label: string): string[]
 
   const normalized = path.normalize(filePath);
   if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.includes(`${path.sep}..${path.sep}`)) {
-    errors.push(`${label} must not traverse outside the workflow directory`);
+    if (!isAllowedExtensionAssetPromptPath(workflowFilePath, normalized)) {
+      errors.push(`${label} must not traverse outside the workflow directory`);
+    }
   }
 
   return errors;
+}
+
+function isAllowedExtensionAssetPromptPath(workflowFilePath: string | undefined, normalizedPromptFile: string): boolean {
+  if (!workflowFilePath) {
+    return false;
+  }
+  const workflowDir = path.dirname(workflowFilePath);
+  const assetsDir = path.dirname(workflowDir);
+  if (path.basename(workflowDir) !== 'workflows' || path.basename(assetsDir) !== 'assets') {
+    return false;
+  }
+  const resolvedPromptPath = path.resolve(workflowDir, normalizedPromptFile);
+  const relativeToAssets = path.relative(assetsDir, resolvedPromptPath);
+  return relativeToAssets.length > 0 && !relativeToAssets.startsWith('..') && !path.isAbsolute(relativeToAssets);
 }
 
 function isWorkflowStep(value: unknown): value is WorkflowStep {
