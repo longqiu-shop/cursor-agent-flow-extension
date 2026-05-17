@@ -101,6 +101,27 @@ export function getAdditionalAgentsDirs(): string[] {
 }
 
 /**
+ * Get additional MCP descriptor directories from configuration.
+ */
+export function getAdditionalMcpDirectories(): string[] {
+  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
+  const additionalDirs = config.get<string[]>('additionalMcpDirectories', []);
+  return additionalDirs.filter(dir => dir && dir.trim().length > 0);
+}
+
+/**
+ * Best-effort location of Cursor's per-workspace MCP descriptor cache.
+ */
+export function getDefaultMcpDescriptorDirectory(): string | undefined {
+  const workspacePath = getWorkspaceFolder();
+  const projectSlug = workspacePath.replace(/^[/\\]+/, '').replace(/[^A-Za-z0-9_-]+/g, '-');
+  if (!projectSlug) {
+    return undefined;
+  }
+  return path.join(getUserHome(), '.cursor', 'projects', projectSlug, 'mcps');
+}
+
+/**
  * Resolve a config path (tilde, absolute, or relative)
  */
 export function resolveConfigPath(dir: string): string {

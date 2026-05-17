@@ -15,7 +15,8 @@ const TOOL_INVENTORY_SOURCES = new Set<ToolInventorySource>([
   'skills',
   'agents',
   'workflowPrimitives',
-  'runtimeActions'
+  'runtimeActions',
+  'mcpTools'
 ]);
 
 export class ToolInventoryStepExecutor implements WorkflowStepExecutor {

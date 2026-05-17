@@ -12,7 +12,7 @@
       "id": "inventory",
       "type": "toolInventory",
       "input": {
-        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions"]
+        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions", "mcpTools"]
       },
       "output": {
         "path": "tool-inventory.json",

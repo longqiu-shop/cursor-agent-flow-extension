@@ -12,7 +12,9 @@ import {
   PlanTask,
   PlanTaskStatus,
   PlanValidationArtifact,
-  ToolInventory
+  TOOL_USE_EVIDENCE_SCHEMA_ID,
+  ToolInventory,
+  ToolUseEvidenceArtifact
 } from './planSchemas';
 import { ConfidenceGate } from './confidenceGate';
 import { OutputContractManager, OutputValidationResult } from './outputContractManager';
@@ -27,6 +29,13 @@ interface PlanRuntimeStepInput {
   planArtifact?: string;
   toolInventoryArtifact?: string;
   allowedCapabilities?: string[];
+}
+
+interface ToolUseEvidenceValidation {
+  path?: string;
+  checkedArtifacts: string[];
+  missingEvidence: string[];
+  risks: string[];
 }
 
 export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
@@ -192,10 +201,12 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     planRun.currentTaskId = task.id;
     traceStore.append('task.started', { stageId, taskId: task.id });
 
+    const selectedMcpToolIds = this.selectedMcpToolIds(task, toolInventory);
+    const mcpEvidencePath = selectedMcpToolIds.length > 0 ? this.toolUseEvidencePath(stageId, task.id) : undefined;
     const inputContext = memoryStore.createInputContext(stageId, task, toolInventory, {
       planMemoryKeys: ['objective', 'riskLevel', 'allowedCapabilities']
     });
-    const prompt = this.buildTaskPrompt(task, inputContext.path, outputManager, context);
+    const prompt = this.buildTaskPrompt(task, inputContext.path, outputManager, context, selectedMcpToolIds, mcpEvidencePath);
     const childStep = this.createAgentTaskStep(stageId, task, prompt);
     const child = await context.executeChildStep(childStep, `planRuntime.${stageId}.${task.id}`, context.variables);
 
@@ -223,9 +234,13 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
 
     const outputValidation = outputManager.validateDeclaredOutputs(task.expectedOutputs, context.variables, {
       taskArtifactDir: `tasks/${stageId}/${task.id}`,
-      allowlist: [`tasks/${stageId}/${task.id}/input-context.json`]
+      allowlist: [
+        `tasks/${stageId}/${task.id}/input-context.json`,
+        ...(mcpEvidencePath ? [mcpEvidencePath] : [])
+      ]
     });
-    const audit = this.createDeterministicAudit(task, outputValidation, context.run.runDir);
+    const toolUseEvidenceValidation = this.validateToolUseEvidence(context.run.runDir, selectedMcpToolIds, mcpEvidencePath);
+    const audit = this.createDeterministicAudit(task, outputValidation, context.run.runDir, toolUseEvidenceValidation);
     const auditPath = `audits/${stageId}/${task.id}/audit.json`;
     context.artifactStore.writeJson(auditPath, audit, context.variables);
     traceStore.append('audit.completed', {
@@ -233,7 +248,10 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       taskId: task.id,
       status: audit.nextAction,
       risks: audit.risks,
-      artifacts: [{ path: auditPath }]
+      artifacts: [
+        { path: auditPath },
+        ...(toolUseEvidenceValidation.path ? [{ path: toolUseEvidenceValidation.path }] : [])
+      ]
     });
 
     const gate = this.confidenceGate.evaluate(task, audit, outputValidation);
@@ -387,9 +405,11 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     task: PlanTask,
     inputContextPath: string,
     outputManager: OutputContractManager,
-    context: WorkflowExecutionContext
+    context: WorkflowExecutionContext,
+    selectedMcpToolIds: string[] = [],
+    mcpEvidencePath?: string
   ): string {
-    return [
+    const lines = [
       `Goal: ${task.goal}`,
       '',
       'Success criteria:',
@@ -401,7 +421,25 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       `Input context JSON: ${inputContextPath}`,
       '',
       outputManager.buildPromptInstructions(task.expectedOutputs, context.variables)
-    ].join('\n');
+    ];
+
+    if (selectedMcpToolIds.length > 0 && mcpEvidencePath) {
+      lines.push(
+        '',
+        'Advisory MCP tool evidence:',
+        `The planner selected these MCP tools: ${selectedMcpToolIds.join(', ')}.`,
+        'Use Cursor MCP tools yourself when they are relevant; the workflow runtime will not call them for you.',
+        `If you use or attempt to use these MCP tools, write JSON evidence to ${path.join(context.run.runDir, mcpEvidencePath)} with this shape:`,
+        JSON.stringify({
+          schemaVersion: PLAN_SCHEMA_VERSION,
+          claimedToolsUsed: selectedMcpToolIds,
+          evidence: ['Briefly describe the MCP calls, inputs, result IDs, URLs, or observations used to support the output.'],
+          notes: 'Optional caveats or failures.'
+        }, null, 2)
+      );
+    }
+
+    return lines.join('\n');
   }
 
   private createAgentTaskStep(stageId: string, task: PlanTask, prompt: string): WorkflowStep {
@@ -418,19 +456,95 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     };
   }
 
-  private createDeterministicAudit(task: PlanTask, outputValidation: OutputValidationResult, runDir: string): AuditArtifact {
-    const missingEvidence = task.evidenceRequired.filter(evidence => !this.relativeArtifactExists(runDir, evidence));
-    const passed = outputValidation.valid && missingEvidence.length === 0;
+  private createDeterministicAudit(
+    task: PlanTask,
+    outputValidation: OutputValidationResult,
+    runDir: string,
+    toolUseEvidenceValidation: ToolUseEvidenceValidation = { checkedArtifacts: [], missingEvidence: [], risks: [] }
+  ): AuditArtifact {
+    const missingEvidence = [
+      ...task.evidenceRequired.filter(evidence => !this.relativeArtifactExists(runDir, evidence)),
+      ...toolUseEvidenceValidation.missingEvidence
+    ];
+    const checkedArtifacts = [
+      ...outputValidation.checkedArtifacts,
+      ...toolUseEvidenceValidation.checkedArtifacts
+    ];
+    const passed = outputValidation.valid && missingEvidence.length === 0 && toolUseEvidenceValidation.risks.length === 0;
     return {
       schemaVersion: PLAN_SCHEMA_VERSION,
       criteriaResults: task.successCriteria.map(criterion => ({
         criterion,
         passed,
-        evidence: outputValidation.checkedArtifacts
+        evidence: checkedArtifacts
       })),
       missingEvidence,
-      risks: [],
+      risks: toolUseEvidenceValidation.risks,
       nextAction: passed ? 'advance' : task.confidencePolicy.onFailure === 'needsApproval' ? 'needsApproval' : 'block'
+    };
+  }
+
+  private selectedMcpToolIds(task: PlanTask, toolInventory: ToolInventory): string[] {
+    const declaredTools = new Set(task.tools ?? []);
+    if (declaredTools.size === 0) {
+      return [];
+    }
+    return toolInventory.tools
+      .filter(tool => tool.source === 'mcpTools' && declaredTools.has(tool.id))
+      .map(tool => tool.id);
+  }
+
+  private toolUseEvidencePath(stageId: string, taskId: string): string {
+    return `tasks/${stageId}/${taskId}/tool-use-evidence.json`;
+  }
+
+  private validateToolUseEvidence(runDir: string, selectedMcpToolIds: string[], evidencePath: string | undefined): ToolUseEvidenceValidation {
+    if (selectedMcpToolIds.length === 0 || !evidencePath) {
+      return { checkedArtifacts: [], missingEvidence: [], risks: [] };
+    }
+
+    const resolvedPath = path.resolve(runDir, evidencePath);
+    if (!this.relativeArtifactExists(runDir, evidencePath)) {
+      return {
+        path: evidencePath,
+        checkedArtifacts: [evidencePath],
+        missingEvidence: [`MCP tool-use evidence was not produced: ${evidencePath}`],
+        risks: []
+      };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(resolvedPath, 'utf-8'));
+    } catch (error) {
+      return {
+        path: evidencePath,
+        checkedArtifacts: [evidencePath],
+        missingEvidence: [`MCP tool-use evidence is not valid JSON: ${evidencePath}`],
+        risks: [error instanceof Error ? error.message : String(error)]
+      };
+    }
+
+    const validation = this.schemaRegistry.validate(TOOL_USE_EVIDENCE_SCHEMA_ID, parsed);
+    if (!validation.valid) {
+      return {
+        path: evidencePath,
+        checkedArtifacts: [evidencePath],
+        missingEvidence: [`MCP tool-use evidence does not match ${TOOL_USE_EVIDENCE_SCHEMA_ID}: ${evidencePath}`],
+        risks: validation.errors
+      };
+    }
+
+    const evidence = validation.value as ToolUseEvidenceArtifact;
+    const claimedTools = new Set(evidence.claimedToolsUsed);
+    const missingTools = selectedMcpToolIds.filter(toolId => !claimedTools.has(toolId));
+    const undeclaredTools = evidence.claimedToolsUsed.filter(toolId => !selectedMcpToolIds.includes(toolId));
+
+    return {
+      path: evidencePath,
+      checkedArtifacts: [evidencePath],
+      missingEvidence: missingTools.map(toolId => `MCP tool-use evidence did not claim selected tool: ${toolId}`),
+      risks: undeclaredTools.map(toolId => `MCP tool-use evidence claimed undeclared tool: ${toolId}`)
     };
   }
 

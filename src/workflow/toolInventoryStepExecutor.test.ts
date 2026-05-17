@@ -82,7 +82,7 @@ test('toolInventory executor rejects unsupported include source', async () => {
   const result = await executor.execute({
     ...step,
     input: {
-      include: ['mcpTools']
+      include: ['unknownTools']
     }
   }, {} as WorkflowStepRun, createContext([]));
 

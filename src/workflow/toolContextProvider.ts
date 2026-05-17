@@ -1,4 +1,7 @@
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { Command } from '../types';
 import type { AgentRegistry } from '../commands/agentRegistry';
 import type { CommandRegistry } from '../commands/commandRegistry';
@@ -14,12 +17,15 @@ export interface ToolContextProviderSources {
   commands?: Command[];
   skills?: Command[];
   agents?: Command[];
+  mcpTools?: McpToolDescriptor[];
+  mcpDescriptorDirectories?: string[];
 }
 
 export interface ToolContextProviderRegistries {
   commandRegistry: CommandRegistry;
   skillRegistry: SkillRegistry;
   agentRegistry: AgentRegistry;
+  mcpDescriptorDirectories?: string[];
 }
 
 export interface ToolInventoryOptions {
@@ -28,12 +34,19 @@ export interface ToolInventoryOptions {
 
 type ToolContextProviderSourceFactory = () => ToolContextProviderSources;
 
+export interface McpToolDescriptor {
+  server: string;
+  name: string;
+  description?: string;
+}
+
 const DEFAULT_SOURCES: ToolInventorySource[] = [
   'commands',
   'skills',
   'agents',
   'workflowPrimitives',
-  'runtimeActions'
+  'runtimeActions',
+  'mcpTools'
 ];
 
 export class ToolContextProvider {
@@ -43,7 +56,8 @@ export class ToolContextProvider {
     return new ToolContextProvider(() => ({
       commands: registries.commandRegistry.getAllCommands(),
       skills: registries.skillRegistry.getAll(),
-      agents: registries.agentRegistry.getAll()
+      agents: registries.agentRegistry.getAll(),
+      mcpDescriptorDirectories: registries.mcpDescriptorDirectories ?? []
     }));
   }
 
@@ -66,6 +80,9 @@ export class ToolContextProvider {
     }
     if (include.has('runtimeActions')) {
       tools.push(...this.runtimeActionTools());
+    }
+    if (include.has('mcpTools')) {
+      tools.push(...this.mcpTools(sources));
     }
 
     return {
@@ -134,6 +151,89 @@ export class ToolContextProvider {
         description: 'Stop the plan run and request human approval'
       }
     ];
+  }
+
+  private mcpTools(sources: ToolContextProviderSources): ToolInventoryEntry[] {
+    const descriptors = [
+      ...(sources.mcpTools ?? []),
+      ...this.discoverMcpTools(sources.mcpDescriptorDirectories ?? [])
+    ];
+
+    return descriptors.map(descriptor => ({
+      id: `mcp.${this.safeToolId(descriptor.server)}.${this.safeToolId(descriptor.name)}`,
+      source: 'mcpTools',
+      capabilities: ['read'],
+      description: descriptor.description
+        ? `${descriptor.server}/${descriptor.name}: ${descriptor.description}`
+        : `${descriptor.server}/${descriptor.name}`
+    }));
+  }
+
+  private discoverMcpTools(directories: string[]): McpToolDescriptor[] {
+    const tools: McpToolDescriptor[] = [];
+    for (const directory of directories) {
+      const baseDir = this.resolveConfigPath(directory);
+      if (!this.isDirectory(baseDir)) {
+        continue;
+      }
+
+      for (const server of this.safeReadDirNames(baseDir, entry => entry.isDirectory())) {
+        const toolsDir = path.join(baseDir, server, 'tools');
+        if (!this.isDirectory(toolsDir)) {
+          continue;
+        }
+
+        for (const fileName of this.safeReadDirNames(toolsDir, entry => entry.isFile() && entry.name.endsWith('.json'))) {
+          const descriptor = this.readMcpToolDescriptor(path.join(toolsDir, fileName));
+          if (descriptor) {
+            tools.push({
+              server,
+              name: descriptor.name ?? path.basename(fileName, '.json'),
+              description: descriptor.description
+            });
+          }
+        }
+      }
+    }
+    return tools;
+  }
+
+  private resolveConfigPath(dir: string): string {
+    if (dir.startsWith('~')) {
+      return path.join(os.homedir(), dir.slice(1));
+    }
+    if (path.isAbsolute(dir)) {
+      return dir;
+    }
+    return path.resolve(dir);
+  }
+
+  private readMcpToolDescriptor(filePath: string): { name?: string; description?: string } | undefined {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as { name?: unknown; description?: unknown };
+      return {
+        name: typeof parsed.name === 'string' && parsed.name.trim().length > 0 ? parsed.name : undefined,
+        description: typeof parsed.description === 'string' && parsed.description.trim().length > 0 ? parsed.description : undefined
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private safeReadDirNames(dirPath: string, predicate: (entry: fs.Dirent) => boolean): string[] {
+    try {
+      return fs.readdirSync(dirPath, { withFileTypes: true }).filter(predicate).map(entry => entry.name);
+    } catch {
+      return [];
+    }
+  }
+
+  private isDirectory(dirPath: string): boolean {
+    try {
+      return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory();
+    } catch {
+      return false;
+    }
   }
 
   private dedupeAndSort(tools: ToolInventoryEntry[]): ToolInventoryEntry[] {
