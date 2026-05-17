@@ -1,0 +1,53 @@
+{
+  "id": "agentic-workflow-bootstrap",
+  "name": "Agentic Workflow Bootstrap",
+  "description": "Build a tool inventory, ask a planner agent for a master plan, then execute it with the plan runtime.",
+  "version": 1,
+  "defaults": {
+    "timeoutSeconds": 900,
+    "onStepFailure": "stop"
+  },
+  "steps": [
+    {
+      "id": "inventory",
+      "type": "toolInventory",
+      "input": {
+        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions"]
+      },
+      "output": {
+        "path": "tool-inventory.json",
+        "format": "json",
+        "schema": "tool-inventory@1"
+      }
+    },
+    {
+      "id": "planner",
+      "type": "agent",
+      "input": {
+        "title": "Plan Agentic Workflow",
+        "promptFile": "agentic-workflow-planner.md",
+        "freshChat": true,
+        "submitMode": "worktree"
+      },
+      "output": {
+        "path": "plan/master-plan.json",
+        "format": "json",
+        "schema": "none"
+      }
+    },
+    {
+      "id": "execute-plan",
+      "type": "planRuntime",
+      "input": {
+        "planArtifact": "{{ steps.planner.outputArtifact }}",
+        "toolInventoryArtifact": "{{ steps.inventory.outputArtifact }}",
+        "allowedCapabilities": ["read", "workspaceWrite"]
+      },
+      "output": {
+        "path": "plan-run.json",
+        "format": "json",
+        "schema": "plan-run@1"
+      }
+    }
+  ]
+}

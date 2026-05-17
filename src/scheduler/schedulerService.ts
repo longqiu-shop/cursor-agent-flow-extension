@@ -186,13 +186,13 @@ export class SchedulerService implements vscode.Disposable {
   /**
    * Run a schedule object directly (for test runs)
    */
-  async runScheduleDirect(schedule: Schedule): Promise<void> {
+  async runScheduleDirect(schedule: Schedule): Promise<string> {
     // Check if already running
     if (this.executionEngine.isScheduleRunning(schedule.id)) {
       throw new Error(`Schedule "${schedule.name}" is already running`);
     }
 
-    await this.executionEngine.execute(schedule);
+    return this.executionEngine.execute(schedule);
   }
 
   /**

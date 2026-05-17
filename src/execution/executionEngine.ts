@@ -246,7 +246,16 @@ export class ExecutionEngine {
         if (!execution.workflow) {
           throw new Error('No workflow provided');
         }
-        const workflowRun = await this.workflowRunner.run(execution.workflow, { scheduleId: schedule.id });
+        const workflowRun = await this.workflowRunner.run(execution.workflow, {
+          scheduleId: schedule.id,
+          variables: {
+            trigger: {
+              goal: schedule.promptTemplate ?? schedule.name,
+              scheduleId: schedule.id,
+              startedAt: runRecord.startedAt
+            }
+          }
+        });
         await this.handleExecutionResult(execution, runRecord, {
           success: workflowRun.status === 'succeeded',
           output: `Workflow ${workflowRun.status}`,
