@@ -336,7 +336,7 @@ Cursor chat can also trigger the workflow by writing a request file:
 }
 ```
 
-Write it to `.cursor/agent-flow-requests/<requestId>.json`. The extension validates the request, starts the same bootstrap workflow, and writes `.cursor/agent-flow-requests/<requestId>.result.json` with `status: "started"` and a `runId`, or `status: "failed"` with an `error`.
+Write it to `~/.cursor/agent-flow-requests/<requestId>.json`. The extension validates the request, starts the same bootstrap workflow for the current Cursor project, and writes `<requestId>.result.json` next to the request with `status: "started"` and a `runId`, or `status: "failed"` with an `error`.
 
 Agentic workflow runs write artifacts under:
 

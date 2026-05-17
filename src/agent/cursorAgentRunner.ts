@@ -20,6 +20,7 @@ export interface AgentSubmitOptions {
   title?: string;
   freshChat?: boolean;
   submitMode?: 'worktree' | 'currentWorkspace';
+  onCommand?: (event: AgentCommandInvocationEvent) => void;
 }
 
 export interface AgentSubmitResult {
@@ -28,12 +29,19 @@ export interface AgentSubmitResult {
   error?: string;
 }
 
+export interface AgentCommandInvocationEvent {
+  command: string;
+  phase: 'invoking' | 'succeeded' | 'failed';
+  timestamp: string;
+  error?: string;
+}
+
 export class CursorAgentRunner {
   async submitPrompt(prompt: string, options: AgentSubmitOptions = {}): Promise<AgentSubmitResult> {
     try {
       if (options.freshChat) {
         try {
-          await vscode.commands.executeCommand('composer.createNewComposerTab');
+          await this.executeCommandWithTelemetry('composer.createNewComposerTab', undefined, options);
           await this.wait(500);
         } catch (error) {
           console.warn('[CursorAgentRunner] Failed to create new composer tab:', error);
@@ -41,13 +49,13 @@ export class CursorAgentRunner {
       }
 
       console.log(`[CursorAgentRunner] Opening chat${options.title ? `: ${options.title}` : ''}`);
-      await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+      await this.executeCommandWithTelemetry('workbench.action.chat.open', { query: prompt }, options);
       await this.wait(1000);
 
       if (options.submitMode === 'currentWorkspace') {
-        await vscode.commands.executeCommand('composer.sendToAgent');
+        await this.executeCommandWithTelemetry('composer.sendToAgent', undefined, options);
       } else {
-        await vscode.commands.executeCommand('composer.triggerCreateWorktreeButton');
+        await this.executeCommandWithTelemetry('composer.triggerCreateWorktreeButton', undefined, options);
       }
 
       return {
@@ -183,7 +191,9 @@ export class CursorAgentRunner {
   private async getWorkspaceFiles(): Promise<string[]> {
     try {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) return [];
+      if (!workspaceFolder) {
+        return [];
+      }
 
       const pattern = new vscode.RelativePattern(workspaceFolder, '**/*');
       const files = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 2000);
@@ -198,6 +208,41 @@ export class CursorAgentRunner {
    */
   private wait(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async executeCommandWithTelemetry(
+    command: string,
+    args: unknown,
+    options: AgentSubmitOptions
+  ): Promise<unknown> {
+    this.emitCommandEvent(options, {
+      command,
+      phase: 'invoking',
+      timestamp: new Date().toISOString()
+    });
+    try {
+      const result = args === undefined
+        ? await vscode.commands.executeCommand(command)
+        : await vscode.commands.executeCommand(command, args);
+      this.emitCommandEvent(options, {
+        command,
+        phase: 'succeeded',
+        timestamp: new Date().toISOString()
+      });
+      return result;
+    } catch (error) {
+      this.emitCommandEvent(options, {
+        command,
+        phase: 'failed',
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  private emitCommandEvent(options: AgentSubmitOptions, event: AgentCommandInvocationEvent): void {
+    options.onCommand?.(event);
   }
 
   /**

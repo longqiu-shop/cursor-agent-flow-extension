@@ -42,9 +42,13 @@ test('extension wires agent chat request files to the agentic workflow starter',
     extensionSource,
     /new AgentChatTriggerService\(goal => commands\.startAgenticWorkflowFromGoal\(goal\)\)/
   );
-  assert.match(extensionSource, /new vscode\.RelativePattern\(vscode\.workspace\.workspaceFolders\?\.\[0\] \|\| '', `\$\{AGENT_CHAT_REQUESTS_DIR\}\/\*\.json`\)/);
-  assert.match(extensionSource, /agentChatTriggerWatcher\.onDidCreate\(queueAgentChatTrigger\)/);
-  assert.match(extensionSource, /agentChatTriggerWatcher\.onDidChange\(queueAgentChatTrigger\)/);
+  assert.doesNotMatch(extensionSource, /[^A-Z_]AGENT_CHAT_REQUESTS_DIR/);
+  assert.doesNotMatch(extensionSource, /`\$\{AGENT_CHAT_REQUESTS_DIR\}\/\*\.json`/);
+  assert.doesNotMatch(extensionSource, /\.cursor\/agent-flow-requests/);
+  assert.match(extensionSource, /GLOBAL_AGENT_CHAT_REQUESTS_DIR/);
+  assert.match(extensionSource, /listAgentChatRequestFiles\(GLOBAL_AGENT_CHAT_REQUESTS_DIR\)/);
+  assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidCreate\(queueAgentChatTrigger\)/);
+  assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidChange\(queueAgentChatTrigger\)/);
   assert.match(commandSource, /async startAgenticWorkflowFromGoal\(goal: string\): Promise<string>/);
   assert.match(commandSource, /const runId = await this\.schedulerService\.runScheduleDirect\(schedule\)/);
 });

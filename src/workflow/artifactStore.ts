@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { ArtifactSpec } from '../types';
 import { readFileSafe, readJsonFile, writeFileAtomic, writeJsonFileAtomic } from '../utils/fileUtils';
 import { renderTemplate, WorkflowVariables } from './variableResolver';

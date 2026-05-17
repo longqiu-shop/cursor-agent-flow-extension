@@ -38,6 +38,35 @@ test('appends trace events and rebuilds derived indexes', () => {
   assert.match(decisionLog, /task\.completed/);
 });
 
+test('continues event numbering when appending to an existing events file', () => {
+  const runDir = tempRunDir();
+  const firstStore = new TraceStore(runDir, {
+    now: () => '2026-05-16T00:00:00.000Z'
+  });
+  firstStore.append('agentSubmission.queued');
+
+  const secondStore = new TraceStore(runDir, {
+    now: () => '2026-05-16T00:00:01.000Z'
+  });
+  secondStore.append('agentSubmission.submitting');
+
+  const events = secondStore.readEvents();
+  assert.deepEqual(events.map(event => event.id), ['event-1', 'event-2']);
+});
+
+test('avoids duplicate event ids when stores append interleaved events', () => {
+  const runDir = tempRunDir();
+  const planRuntimeStore = new TraceStore(runDir);
+  planRuntimeStore.append('planRuntime.started');
+
+  const agentStepStore = new TraceStore(runDir);
+  agentStepStore.append('agentSubmission.queued');
+  planRuntimeStore.append('planRuntime.completed');
+
+  const events = planRuntimeStore.readEvents();
+  assert.deepEqual(events.map(event => event.id), ['event-1', 'event-2', 'event-3']);
+});
+
 test('rejects corrupted events when rebuilding indexes', () => {
   const runDir = tempRunDir();
   fs.writeFileSync(path.join(runDir, 'events.jsonl'), '{"schemaVersion":"1","id":"event-1"\n', 'utf-8');

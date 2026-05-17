@@ -2,7 +2,11 @@ import test, { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentChatTriggerResult, AgentChatTriggerService } from './agentChatTriggerService';
+import {
+  AgentChatTriggerResult,
+  AgentChatTriggerService,
+  listAgentChatRequestFiles
+} from './agentChatTriggerService';
 
 function tempRequestsDir(t: TestContext): string {
   const dir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-agent-chat-triggers-'));
@@ -248,4 +252,39 @@ test('ignores result files without writing nested result files', async t => {
     error: 'Not an agent chat trigger request file'
   });
   assert.equal(fs.existsSync(path.join(requestsDir, `${requestId}.result.result.json`)), false);
+});
+
+test('lists existing request files while skipping result files and non-json files', t => {
+  const requestsDir = tempRequestsDir(t);
+  const firstRequestId = 'start-agentic-workflow-1700000000009';
+  const secondRequestId = 'start-agentic-workflow-1700000000010';
+  writeJson(requestPath(requestsDir, firstRequestId), {
+    type: 'startAgenticWorkflow',
+    requestId: firstRequestId,
+    goal: 'Summarize today\'s git changes'
+  });
+  writeJson(requestPath(requestsDir, secondRequestId), {
+    type: 'startAgenticWorkflow',
+    requestId: secondRequestId,
+    goal: 'Review the open PR'
+  });
+  writeJson(resultPath(requestsDir, firstRequestId), {
+    requestId: firstRequestId,
+    status: 'started',
+    runId: 'run_existing'
+  });
+  fs.writeFileSync(path.join(requestsDir, 'notes.txt'), 'not a request', 'utf-8');
+
+  const files = listAgentChatRequestFiles(requestsDir).map(filePath => path.basename(filePath));
+
+  assert.deepEqual(files.sort(), [
+    `${firstRequestId}.json`,
+    `${secondRequestId}.json`
+  ]);
+});
+
+test('returns no existing request files when the directory is absent', () => {
+  const missingDir = path.join(process.cwd(), 'missing-agent-chat-request-dir');
+
+  assert.deepEqual(listAgentChatRequestFiles(missingDir), []);
 });
