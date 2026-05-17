@@ -17,7 +17,7 @@ export interface AgentChatTriggerResult {
 
 type StartAgenticWorkflow = (goal: string) => Promise<string>;
 
-const REQUEST_ID_PATTERN = /^start-agentic-workflow-[A-Za-z0-9._-]+$/;
+const REQUEST_ID_PATTERN = /^start-agentic-workflow-\d{14}$/;
 const REQUEST_KEYS = ['goal', 'requestId', 'type'];
 
 export function listAgentChatRequestFiles(directory: string): string[] {
@@ -137,7 +137,7 @@ export class AgentChatTriggerService {
     if (!REQUEST_ID_PATTERN.test(parsed.requestId)) {
       return {
         ok: false,
-        error: 'requestId must use the start-agentic-workflow-<timestamp> format'
+        error: 'requestId must use the start-agentic-workflow-YYYYMMDDHHmmss format'
       };
     }
 

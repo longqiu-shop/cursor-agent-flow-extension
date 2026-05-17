@@ -35,7 +35,7 @@ function readResult(requestsDir: string, requestId: string): AgentChatTriggerRes
 
 test('starts workflow for a valid request and writes exact started result', async t => {
   const requestsDir = tempRequestsDir(t);
-  const requestId = 'start-agentic-workflow-1700000000000';
+  const requestId = 'start-agentic-workflow-20260516230000';
   writeJson(requestPath(requestsDir, requestId), {
     type: 'startAgenticWorkflow',
     requestId,
@@ -60,7 +60,7 @@ test('starts workflow for a valid request and writes exact started result', asyn
 
 test('rejects extra top-level fields without starting workflow', async t => {
   const requestsDir = tempRequestsDir(t);
-  const requestId = 'start-agentic-workflow-1700000000001';
+  const requestId = 'start-agentic-workflow-20260516230001';
   writeJson(requestPath(requestsDir, requestId), {
     type: 'startAgenticWorkflow',
     requestId,
@@ -84,8 +84,8 @@ test('rejects extra top-level fields without starting workflow', async t => {
 
 test('rejects requestId mismatch with filename without starting workflow', async t => {
   const requestsDir = tempRequestsDir(t);
-  const fileRequestId = 'start-agentic-workflow-1700000000002';
-  const bodyRequestId = 'start-agentic-workflow-1700000000003';
+  const fileRequestId = 'start-agentic-workflow-20260516230002';
+  const bodyRequestId = 'start-agentic-workflow-20260516230003';
   writeJson(requestPath(requestsDir, fileRequestId), {
     type: 'startAgenticWorkflow',
     requestId: bodyRequestId,
@@ -103,7 +103,7 @@ test('rejects requestId mismatch with filename without starting workflow', async
 
 test('rejects blank goals without starting workflow', async t => {
   const requestsDir = tempRequestsDir(t);
-  const requestId = 'start-agentic-workflow-1700000000007';
+  const requestId = 'start-agentic-workflow-20260516230007';
   writeJson(requestPath(requestsDir, requestId), {
     type: 'startAgenticWorkflow',
     requestId,
@@ -142,12 +142,34 @@ test('rejects request ids outside the expected trigger format', async t => {
   assert.equal(calls, 0);
   assert.equal(result.status, 'failed');
   assert.equal(result.requestId, requestId);
-  assert.match(result.error ?? '', /start-agentic-workflow-<timestamp> format/);
+  assert.match(result.error ?? '', /start-agentic-workflow-YYYYMMDDHHmmss format/);
+});
+
+test('rejects ISO-like request ids outside the canonical local timestamp format', async t => {
+  const requestsDir = tempRequestsDir(t);
+  const requestId = 'start-agentic-workflow-20260516T230700';
+  writeJson(requestPath(requestsDir, requestId), {
+    type: 'startAgenticWorkflow',
+    requestId,
+    goal: 'Summarize today\'s git changes'
+  });
+  let calls = 0;
+  const service = new AgentChatTriggerService(async () => {
+    calls += 1;
+    return 'run_unreachable';
+  });
+
+  const result = await service.processRequestFile(requestPath(requestsDir, requestId));
+
+  assert.equal(calls, 0);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.requestId, requestId);
+  assert.match(result.error ?? '', /start-agentic-workflow-YYYYMMDDHHmmss format/);
 });
 
 test('does not start the same request twice or overwrite the started result', async t => {
   const requestsDir = tempRequestsDir(t);
-  const requestId = 'start-agentic-workflow-1700000000004';
+  const requestId = 'start-agentic-workflow-20260516230004';
   writeJson(requestPath(requestsDir, requestId), {
     type: 'startAgenticWorkflow',
     requestId,
@@ -178,7 +200,7 @@ test('does not start the same request twice or overwrite the started result', as
 
 test('does not restart a request that already has a result file', async t => {
   const requestsDir = tempRequestsDir(t);
-  const requestId = 'start-agentic-workflow-1700000000008';
+  const requestId = 'start-agentic-workflow-20260516230008';
   writeJson(requestPath(requestsDir, requestId), {
     type: 'startAgenticWorkflow',
     requestId,
@@ -209,7 +231,7 @@ test('does not restart a request that already has a result file', async t => {
 
 test('writes failed result when workflow start throws', async t => {
   const requestsDir = tempRequestsDir(t);
-  const requestId = 'start-agentic-workflow-1700000000005';
+  const requestId = 'start-agentic-workflow-20260516230005';
   writeJson(requestPath(requestsDir, requestId), {
     type: 'startAgenticWorkflow',
     requestId,
@@ -231,7 +253,7 @@ test('writes failed result when workflow start throws', async t => {
 
 test('ignores result files without writing nested result files', async t => {
   const requestsDir = tempRequestsDir(t);
-  const requestId = 'start-agentic-workflow-1700000000006';
+  const requestId = 'start-agentic-workflow-20260516230006';
   writeJson(resultPath(requestsDir, requestId), {
     requestId,
     status: 'started',
@@ -256,8 +278,8 @@ test('ignores result files without writing nested result files', async t => {
 
 test('lists existing request files while skipping result files and non-json files', t => {
   const requestsDir = tempRequestsDir(t);
-  const firstRequestId = 'start-agentic-workflow-1700000000009';
-  const secondRequestId = 'start-agentic-workflow-1700000000010';
+  const firstRequestId = 'start-agentic-workflow-20260516230009';
+  const secondRequestId = 'start-agentic-workflow-20260516230010';
   writeJson(requestPath(requestsDir, firstRequestId), {
     type: 'startAgenticWorkflow',
     requestId: firstRequestId,
