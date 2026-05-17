@@ -13,6 +13,8 @@ export const PLAN_VALIDATION_SCHEMA_ID = 'plan-validation@1';
 export const PLAN_RUN_SCHEMA_ID = 'plan-run@1';
 export const TRACE_EVENT_SCHEMA_ID = 'trace-event@1';
 
+const EXPECTED_OUTPUT_KEYS = new Set(['format', 'path', 'required', 'schema']);
+
 export type PlanRiskLevel = 'low' | 'medium' | 'high';
 export type PlanFailureAction = 'block' | 'retry' | 'needsApproval';
 export type PlanTaskType = 'agent';
@@ -457,13 +459,18 @@ function validateExpectedOutputs(value: unknown, path: string, errors: string[])
       errors.push(`${outputPath} must be object`);
       return;
     }
+    for (const key of Object.keys(output)) {
+      if (!EXPECTED_OUTPUT_KEYS.has(key)) {
+        errors.push(`${outputPath}.${key} is not allowed`);
+      }
+    }
     requireNonEmptyString(output, 'path', `${outputPath}.path`, errors);
     requireEnum(output, 'format', ['json', 'markdown', 'text'], `${outputPath}.format`, errors);
     if (output.required !== undefined && typeof output.required !== 'boolean') {
       errors.push(`${outputPath}.required must be boolean`);
     }
-    if (output.schema !== undefined && typeof output.schema !== 'string') {
-      errors.push(`${outputPath}.schema must be string`);
+    if (output.schema !== undefined && (typeof output.schema !== 'string' || output.schema.trim().length === 0)) {
+      errors.push(`${outputPath}.schema must be a non-empty string`);
     }
   });
 }
