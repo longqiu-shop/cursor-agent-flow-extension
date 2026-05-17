@@ -159,6 +159,25 @@ test('imports markdown with one executable master-plan block', async t => {
   assert.equal(importValidation.format, 'markdown');
 });
 
+test('imports plans from advertised tilde-prefixed paths', async t => {
+  const fakeHome = fs.mkdtempSync(path.join(process.cwd(), '.tmp-plan-import-home-'));
+  t.after(() => fs.rmSync(fakeHome, { recursive: true, force: true }));
+  const trustedDir = path.join(fakeHome, 'plans');
+  fs.mkdirSync(trustedDir, { recursive: true });
+  const runDir = tempDir(t, 'plan-import-run-');
+  const planPath = path.join(trustedDir, 'plan.json');
+  fs.writeFileSync(planPath, `${JSON.stringify(validPlan(), null, 2)}\n`, 'utf-8');
+  const tildePlanPath = `~/${path.relative(fakeHome, planPath).split(path.sep).join('/')}`;
+  const executor = new PlanImportStepExecutor(createWorkflowSchemaRegistry(), [trustedDir], fakeHome);
+
+  const result = await executor.execute(step, stepRun, createContext(runDir, tildePlanPath));
+
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(runDir, 'plan/master-plan.json'), 'utf-8')), validPlan());
+  const importValidation = JSON.parse(fs.readFileSync(path.join(runDir, 'plan/import-validation.json'), 'utf-8')) as { sourcePath: string };
+  assert.equal(importValidation.sourcePath, tildePlanPath);
+});
+
 test('blocks markdown without an executable master-plan block', async t => {
   const trustedDir = tempDir(t, 'plan-import-trusted-');
   const runDir = tempDir(t, 'plan-import-run-');
