@@ -27,7 +27,8 @@ export class PlanImportStepExecutor implements WorkflowStepExecutor {
 
   constructor(
     private readonly schemaRegistry: WorkflowSchemaRegistry,
-    private readonly trustedDirectories: string[] = defaultTrustedPlanDirectories()
+    private readonly trustedDirectories: string[] = defaultTrustedPlanDirectories(),
+    private readonly homeDirectory: string = os.homedir()
   ) {}
 
   async execute(step: WorkflowStep, _stepRun: WorkflowStepRun, context: WorkflowExecutionContext): Promise<StepExecutionResult> {
@@ -172,9 +173,10 @@ export class PlanImportStepExecutor implements WorkflowStepExecutor {
   }
 
   private resolveTrustedPlanPath(planPath: string): { ok: true; realPath: string } | { ok: false; error: string } {
-    const absolutePath = path.isAbsolute(planPath)
-      ? planPath
-      : path.resolve(this.defaultBaseDirectory(), planPath);
+    const expandedPath = this.expandHomePath(planPath);
+    const absolutePath = path.isAbsolute(expandedPath)
+      ? expandedPath
+      : path.resolve(this.defaultBaseDirectory(), expandedPath);
     if (!fs.existsSync(absolutePath)) {
       return { ok: false, error: `Plan document does not exist: ${planPath}` };
     }
@@ -192,6 +194,16 @@ export class PlanImportStepExecutor implements WorkflowStepExecutor {
     }
 
     return { ok: true, realPath };
+  }
+
+  private expandHomePath(planPath: string): string {
+    if (planPath === '~') {
+      return this.homeDirectory;
+    }
+    if (planPath.startsWith('~/') || planPath.startsWith(`~${path.sep}`)) {
+      return path.join(this.homeDirectory, planPath.slice(2));
+    }
+    return planPath;
   }
 
   private defaultBaseDirectory(): string {
