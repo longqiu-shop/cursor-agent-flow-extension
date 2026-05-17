@@ -14,6 +14,11 @@ export interface TaskInputContext {
     stageId: string;
     taskId: string;
     goal: string;
+    role?: string;
+    taskBoundary?: PlanTask['taskBoundary'];
+    dependsOn?: string[];
+    inputArtifacts?: string[];
+    outputPurpose?: string;
     successCriteria: string[];
     evidenceRequired: string[];
   };
@@ -68,6 +73,11 @@ export class WorkflowMemoryStore {
         stageId,
         taskId: task.id,
         goal: task.goal,
+        ...(task.role ? { role: task.role } : {}),
+        ...(task.taskBoundary ? { taskBoundary: task.taskBoundary } : {}),
+        ...(task.dependsOn ? { dependsOn: task.dependsOn } : {}),
+        ...(task.inputArtifacts ? { inputArtifacts: task.inputArtifacts } : {}),
+        ...(task.outputPurpose ? { outputPurpose: task.outputPurpose } : {}),
         successCriteria: task.successCriteria,
         evidenceRequired: task.evidenceRequired
       },

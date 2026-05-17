@@ -36,10 +36,21 @@ export interface PlanConfidencePolicy {
   onFailure: PlanFailureAction;
 }
 
+export interface PlanTaskBoundary {
+  role?: string;
+  maxAgentInvocations?: number;
+  description?: string;
+}
+
 export interface PlanTask {
   id: string;
   type: PlanTaskType;
   goal: string;
+  role?: string;
+  taskBoundary?: PlanTaskBoundary;
+  dependsOn?: string[];
+  inputArtifacts?: string[];
+  outputPurpose?: string;
   scope?: Record<string, unknown>;
   nonGoals?: string[];
   successCriteria: string[];
@@ -431,7 +442,42 @@ function validatePlanTasks(value: unknown, stagePath: string, errors: string[]):
     if (task.scope !== undefined && !isRecord(task.scope)) {
       errors.push(`${path}.scope must be object`);
     }
+    if (task.role !== undefined) {
+      requireNonEmptyString(task, 'role', `${path}.role`, errors);
+    }
+    if (task.taskBoundary !== undefined) {
+      validateTaskBoundary(task.taskBoundary, `${path}.taskBoundary`, errors);
+    }
+    if (task.dependsOn !== undefined) {
+      requireStringArray(task, 'dependsOn', `${path}.dependsOn`, errors, true);
+    }
+    if (task.inputArtifacts !== undefined) {
+      requireStringArray(task, 'inputArtifacts', `${path}.inputArtifacts`, errors, true);
+    }
+    if (task.outputPurpose !== undefined) {
+      requireNonEmptyString(task, 'outputPurpose', `${path}.outputPurpose`, errors);
+    }
   });
+}
+
+function validateTaskBoundary(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be object`);
+    return;
+  }
+  if (value.role !== undefined) {
+    requireNonEmptyString(value, 'role', `${path}.role`, errors);
+  }
+  const maxAgentInvocations = value.maxAgentInvocations;
+  if (
+    maxAgentInvocations !== undefined
+    && (typeof maxAgentInvocations !== 'number' || !Number.isInteger(maxAgentInvocations) || maxAgentInvocations < 1)
+  ) {
+    errors.push(`${path}.maxAgentInvocations must be a positive integer`);
+  }
+  if (value.description !== undefined) {
+    requireNonEmptyString(value, 'description', `${path}.description`, errors);
+  }
 }
 
 function validateConfidencePolicy(value: unknown, path: string, errors: string[]): void {

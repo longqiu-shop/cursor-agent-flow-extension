@@ -241,6 +241,44 @@ test('planRuntime executes a valid one-task plan through audit and confidence', 
   assert.equal(fs.existsSync(path.join(runDir, 'decision-log.md')), true);
 });
 
+test('planRuntime includes task-boundary metadata in child agent prompts', async () => {
+  const runDir = tempRunDir();
+  const schemaRegistry = createWorkflowSchemaRegistry();
+  const artifactStore = createArtifactStore(runDir);
+  const plan = validPlan();
+  plan.stages[0].tasks[0] = {
+    ...plan.stages[0].tasks[0],
+    role: 'verifier',
+    taskBoundary: {
+      role: 'verifier',
+      maxAgentInvocations: 1,
+      description: 'Verify the candidate output only'
+    },
+    dependsOn: ['candidate-review'],
+    inputArtifacts: ['tasks/review/candidate-review/output.md'],
+    outputPurpose: 'verification'
+  };
+  writeBaseRuntimeInputs(artifactStore, plan);
+  const childCalls: WorkflowStep[] = [];
+  const context = createContext(runDir, childCalls);
+  const executor = new PlanRuntimeStepExecutor(schemaRegistry);
+
+  const result = await executor.execute(planRuntimeStep, {
+    stepRunId: 'execute-plan',
+    definitionId: 'execute-plan',
+    type: 'planRuntime',
+    status: 'running'
+  }, context);
+
+  const prompt = (childCalls[0].input as { prompt: string }).prompt;
+  assert.equal(result.status, 'succeeded');
+  assert.match(prompt, /Role: verifier/);
+  assert.match(prompt, /Output purpose: verification/);
+  assert.match(prompt, /Max agent invocations: 1/);
+  assert.match(prompt, /Depends on:\n- candidate-review/);
+  assert.match(prompt, /Input artifacts:\n- tasks\/review\/candidate-review\/output\.md/);
+});
+
 test('planRuntime accepts templated absolute artifact paths inside the run directory', async () => {
   const runDir = tempRunDir();
   const schemaRegistry = createWorkflowSchemaRegistry();

@@ -31,6 +31,16 @@ Task boundary rules:
 - If a workflow needs multiple roles, model them as separate tasks.
 - If a task output must be reviewed before use, create a separate verifier task.
 - If a task posts comments, writes files, or performs external side effects, separate it from analysis and require evidence from prior validation.
+- Prefer adding task metadata when it clarifies boundaries:
+  - role: one role such as "producer", "reviewer", "verifier", "synthesizer", "reviser", or "poster".
+  - taskBoundary.maxAgentInvocations: 1.
+  - dependsOn: task ids whose declared artifacts this task consumes.
+  - inputArtifacts: artifact paths this task may read as context.
+  - outputPurpose: one of "analysis", "verification", "synthesis", "revision", "artifact", or "sideEffect".
+- Do not put multiple roles in one role field, such as "reviewer and verifier".
+- For user goals that ask for independent verification, double-checking, audit, critique, posting after review, or iterative improvement, split the work into separate one-agent tasks connected by dependsOn/inputArtifacts.
+- PR review pattern: candidate review -> independent verification -> synthesis -> optional posting side-effect.
+- Design review pattern: draft/design summary -> architecture critique -> QA critique -> independent verification -> optional revision.
 
 Recommended shape:
 
@@ -47,7 +57,16 @@ Recommended shape:
         {
           "id": "complete-goal",
           "type": "agent",
+          "role": "producer",
           "goal": "<specific task goal>",
+          "taskBoundary": {
+            "role": "producer",
+            "maxAgentInvocations": 1,
+            "description": "Produce the requested artifact only; verification or side effects belong in separate tasks."
+          },
+          "dependsOn": [],
+          "inputArtifacts": [],
+          "outputPurpose": "artifact",
           "successCriteria": ["The requested result is produced"],
           "evidenceRequired": ["tasks/execute/complete-goal/output.md"],
           "confidencePolicy": {

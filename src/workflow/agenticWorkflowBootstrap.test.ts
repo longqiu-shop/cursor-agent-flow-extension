@@ -48,6 +48,18 @@ test('copies extension-owned workflow assets into package output', () => {
   assert.match(vscodeIgnore, /!out\/assets\/\*\*/);
 });
 
+test('extension-owned planner prompt describes task-boundary splitting rules', () => {
+  const promptPath = path.resolve(process.cwd(), 'src/assets/prompts/agentic-workflow-planner.md');
+  const prompt = fs.readFileSync(promptPath, 'utf-8');
+
+  assert.match(prompt, /Each task represents at most one agent invocation/);
+  assert.match(prompt, /reviewer and verifier/);
+  assert.match(prompt, /independent verification/);
+  assert.match(prompt, /separate one-agent tasks/);
+  assert.match(prompt, /PR review pattern: candidate review -> independent verification -> synthesis -> optional posting side-effect/);
+  assert.match(prompt, /Design review pattern: draft\/design summary -> architecture critique -> QA critique -> independent verification -> optional revision/);
+});
+
 test('does not require a project-local skill for the agentic workflow trigger', () => {
   const skillPath = path.resolve(process.cwd(), '.cursor/skills/start-agentic-workflow/SKILL.md');
 

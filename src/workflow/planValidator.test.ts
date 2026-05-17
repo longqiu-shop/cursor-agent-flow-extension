@@ -145,6 +145,155 @@ test('requires approval for high-risk plans', () => {
   assert.deepEqual(approved.artifact.errors, []);
 });
 
+test('accepts valid single-role task-boundary metadata', () => {
+  const validator = new PlanValidator();
+  const baseTask = validPlan().stages[0].tasks[0];
+  const result = validator.validate(validPlan({
+    stages: [
+      {
+        id: 'summarize',
+        tasks: [
+          {
+            ...baseTask,
+            role: 'producer',
+            taskBoundary: {
+              role: 'producer',
+              maxAgentInvocations: 1,
+              description: 'Produce the requested summary only'
+            },
+            outputPurpose: 'artifact'
+          }
+        ]
+      }
+    ]
+  }), {
+    toolInventory,
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.artifact.errors, []);
+});
+
+test('rejects ambiguous goals, multiple roles, and multi-agent task claims', () => {
+  const validator = new PlanValidator();
+  const baseTask = validPlan().stages[0].tasks[0];
+  const result = validator.validate(validPlan({
+    stages: [
+      {
+        id: 'summarize',
+        tasks: [
+          {
+            ...baseTask,
+            goal: 'Do it',
+            role: 'reviewer and verifier',
+            taskBoundary: {
+              maxAgentInvocations: 2
+            }
+          }
+        ]
+      }
+    ]
+  }), {
+    toolInventory,
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.artifact.errors.map(error => error.code), [
+    PLAN_VALIDATION_ERROR_CODES.AMBIGUOUS_TASK_GOAL,
+    PLAN_VALIDATION_ERROR_CODES.MULTIPLE_TASK_ROLES,
+    PLAN_VALIDATION_ERROR_CODES.MULTI_AGENT_TASK
+  ]);
+});
+
+test('requires side-effect tasks to declare prior validation evidence', () => {
+  const validator = new PlanValidator();
+  const baseTask = validPlan().stages[0].tasks[0];
+  const result = validator.validate(validPlan({
+    stages: [
+      {
+        id: 'summarize',
+        tasks: [
+          {
+            ...baseTask,
+            id: 'post-comments',
+            goal: 'Post validated review comments',
+            role: 'poster',
+            outputPurpose: 'sideEffect'
+          }
+        ]
+      }
+    ]
+  }), {
+    toolInventory,
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.artifact.errors.map(error => error.code), [
+    PLAN_VALIDATION_ERROR_CODES.SIDE_EFFECT_REQUIRES_DEPENDENCY
+  ]);
+});
+
+test('accepts independent verification and posting split across one-agent tasks', () => {
+  const validator = new PlanValidator();
+  const reviewOutput = 'tasks/review/candidate-review/output.md';
+  const verificationOutput = 'tasks/review/verify-review/output.json';
+  const postOutput = 'tasks/review/post-comments/posted-comments.json';
+  const baseTask = validPlan().stages[0].tasks[0];
+  const result = validator.validate(validPlan({
+    objective: 'Review a PR, double-check concerns, then post comments',
+    stages: [
+      {
+        id: 'review',
+        tasks: [
+          {
+            ...baseTask,
+            id: 'candidate-review',
+            goal: 'Draft candidate PR review findings',
+            role: 'reviewer',
+            taskBoundary: { role: 'reviewer', maxAgentInvocations: 1 },
+            outputPurpose: 'analysis',
+            evidenceRequired: [reviewOutput],
+            expectedOutputs: [{ path: reviewOutput, format: 'markdown', required: true }]
+          },
+          {
+            ...baseTask,
+            id: 'verify-review',
+            goal: 'Independently verify candidate PR review findings',
+            role: 'verifier',
+            taskBoundary: { role: 'verifier', maxAgentInvocations: 1 },
+            dependsOn: ['candidate-review'],
+            inputArtifacts: [reviewOutput],
+            outputPurpose: 'verification',
+            evidenceRequired: [verificationOutput],
+            expectedOutputs: [{ path: verificationOutput, format: 'json', required: true }]
+          },
+          {
+            ...baseTask,
+            id: 'post-comments',
+            goal: 'Post only verified PR review comments',
+            role: 'poster',
+            taskBoundary: { role: 'poster', maxAgentInvocations: 1 },
+            dependsOn: ['verify-review'],
+            inputArtifacts: [verificationOutput],
+            outputPurpose: 'sideEffect',
+            evidenceRequired: [postOutput],
+            expectedOutputs: [{ path: postOutput, format: 'json', required: true }]
+          }
+        ]
+      }
+    ]
+  }), {
+    toolInventory,
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.artifact.errors, []);
+});
+
 test('rejects unsafe, duplicate, and unknown-schema expected outputs', () => {
   const validator = new PlanValidator();
   const baseTask = validPlan().stages[0].tasks[0];
