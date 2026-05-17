@@ -61,7 +61,7 @@ export class ExtensionCommands {
       vscode.commands.registerCommand('cursorAgentFlow.inspectWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.inspectWorkflowRun(item)),
       vscode.commands.registerCommand('cursorAgentFlow.openWorkflowRunFolder', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.openWorkflowRunFolder(item)),
       vscode.commands.registerCommand('cursorAgentFlow.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
-      vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflow', () => this.startAgenticWorkflow()),
+      vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflow', (goal?: string) => this.startAgenticWorkflow(goal)),
       vscode.commands.registerCommand('cursorAgentFlow.reloadCommands', () => this.reloadCommands()),
       vscode.commands.registerCommand('cursorAgentFlow.testExecution', () => this.testExecution()),
     ];
@@ -123,8 +123,8 @@ export class ExtensionCommands {
     }
   }
 
-  private async startAgenticWorkflow(): Promise<void> {
-    const goal = await vscode.window.showInputBox({
+  private async startAgenticWorkflow(goalArg?: string): Promise<void> {
+    const goal = goalArg ?? await vscode.window.showInputBox({
       prompt: 'What should the agentic workflow accomplish?',
       placeHolder: 'Example: Summarize today\'s git changes',
       ignoreFocusOut: true
@@ -134,28 +134,38 @@ export class ExtensionCommands {
     }
 
     const trimmedGoal = goal.trim();
-    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal);
 
     try {
-      this.workflowRegistry.reload();
-      const workflow = this.workflowRegistry.get(
-        AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
-        AGENTIC_BOOTSTRAP_WORKFLOW_ID
-      );
-      if (!workflow) {
-        const errors = this.workflowRegistry.getErrors()
-          .map(error => `${error.filePath}: ${error.errors.join('; ')}`)
-          .join('\n');
-        throw new Error(errors || `Workflow not found: ${AGENTIC_BOOTSTRAP_WORKFLOW_ID}`);
-      }
-
-      const runId = await this.schedulerService.runScheduleDirect(schedule);
-      this.treeView.refresh();
+      const runId = await this.startAgenticWorkflowFromGoal(trimmedGoal);
       vscode.window.showInformationMessage(`Started agentic workflow run ${runId} for: ${trimmedGoal}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`Failed to start agentic workflow: ${message}`);
     }
+  }
+
+  async startAgenticWorkflowFromGoal(goal: string): Promise<string> {
+    const trimmedGoal = goal.trim();
+    if (trimmedGoal.length === 0) {
+      throw new Error('Agentic workflow goal must be non-empty');
+    }
+
+    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal);
+    this.workflowRegistry.reload();
+    const workflow = this.workflowRegistry.get(
+      AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
+      AGENTIC_BOOTSTRAP_WORKFLOW_ID
+    );
+    if (!workflow) {
+      const errors = this.workflowRegistry.getErrors()
+        .map(error => `${error.filePath}: ${error.errors.join('; ')}`)
+        .join('\n');
+      throw new Error(errors || `Workflow not found: ${AGENTIC_BOOTSTRAP_WORKFLOW_ID}`);
+    }
+
+    const runId = await this.schedulerService.runScheduleDirect(schedule);
+    this.treeView.refresh();
+    return runId;
   }
 
   private createAgenticWorkflowSchedule(goal: string): Schedule {

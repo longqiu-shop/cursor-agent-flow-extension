@@ -22,12 +22,8 @@ test('validates the concrete agentic workflow bootstrap fixture', () => {
   assert.equal(workflow.steps[2].input?.toolInventoryArtifact, '{{ steps.inventory.outputArtifact }}');
 });
 
-test('declares a project skill for the agentic workflow trigger', () => {
+test('does not require a project-local skill for the agentic workflow trigger', () => {
   const skillPath = path.resolve(process.cwd(), '.cursor/skills/start-agentic-workflow/SKILL.md');
-  const skill = fs.readFileSync(skillPath, 'utf-8');
 
-  assert.match(skill, /^---\nname: start-agentic-workflow/m);
-  assert.match(skill, /cursorAgentFlow\.startAgenticWorkflow/);
-  assert.match(skill, /\.cursor\/workflows\/agentic-workflow-bootstrap\.json/);
-  assert.match(skill, /toolInventory -> planner -> planRuntime/);
+  assert.equal(fs.existsSync(skillPath), false);
 });
