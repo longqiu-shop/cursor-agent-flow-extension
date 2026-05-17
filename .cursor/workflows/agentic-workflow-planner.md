@@ -19,6 +19,10 @@ MVP constraints:
 - Use allowedCapabilities ["read", "workspaceWrite"] only when the task needs an agent to write declared artifacts.
 - Every task must have successCriteria, evidenceRequired, confidencePolicy, expectedOutputs, and tools.
 - Every expected output path must stay under tasks/<stage-id>/<task-id>/.
+- Every expectedOutputs item may contain only these fields: path, format, required, schema.
+- expectedOutputs format must be one of "json", "markdown", or "text"; required, when present, must be boolean.
+- Do not invent custom output schemas such as "posted-pr-review@1". Omit schema for ad-hoc JSON outputs, or use only a registered runtime schema when the artifact exactly matches it.
+- The only registered schema normally needed for task outputs is "tool-use-evidence@1" for MCP tool-use evidence.
 
 Recommended shape:
 

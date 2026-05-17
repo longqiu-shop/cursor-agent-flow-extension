@@ -65,6 +65,37 @@ test('validates a minimal master plan artifact', () => {
   assert.deepEqual(result.value, validMasterPlan);
 });
 
+test('rejects expected outputs with unvalidated fields', () => {
+  const registry = createWorkflowSchemaRegistry();
+  const result = registry.validate(MASTER_PLAN_SCHEMA_ID, {
+    ...validMasterPlan,
+    stages: [
+      {
+        id: 'summarize',
+        tasks: [
+          {
+            ...validMasterPlan.stages[0].tasks[0],
+            expectedOutputs: [
+              {
+                path: 'tasks/summarize/summarize-git-changes/output.json',
+                format: 'json',
+                schema: '',
+                description: 'planner-invented output metadata'
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, [
+    'master-plan@1.stages[0].tasks[0].expectedOutputs[0].description is not allowed',
+    'master-plan@1.stages[0].tasks[0].expectedOutputs[0].schema must be a non-empty string'
+  ]);
+});
+
 test('rejects malformed master plan artifacts with stable schema-version errors', () => {
   const registry = createWorkflowSchemaRegistry();
   const result = registry.validate(MASTER_PLAN_SCHEMA_ID, {
