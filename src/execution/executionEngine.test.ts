@@ -46,6 +46,8 @@ test('extension wires agent chat request files to the agentic workflow starter',
   assert.doesNotMatch(extensionSource, /`\$\{AGENT_CHAT_REQUESTS_DIR\}\/\*\.json`/);
   assert.doesNotMatch(extensionSource, /\.cursor\/agent-flow-requests/);
   assert.match(extensionSource, /GLOBAL_AGENT_CHAT_REQUESTS_DIR/);
+  assert.match(extensionSource, /fs\.mkdirSync\(GLOBAL_AGENT_CHAT_REQUESTS_DIR, \{ recursive: true \}\)/);
+  assert.match(extensionSource, /new vscode\.RelativePattern\(vscode\.Uri\.file\(GLOBAL_AGENT_CHAT_REQUESTS_DIR\), '\*\.json'\)/);
   assert.match(extensionSource, /listAgentChatRequestFiles\(GLOBAL_AGENT_CHAT_REQUESTS_DIR\)/);
   assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidCreate\(queueAgentChatTrigger\)/);
   assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidChange\(queueAgentChatTrigger\)/);
