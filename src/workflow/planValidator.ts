@@ -23,7 +23,11 @@ export const PLAN_VALIDATION_ERROR_CODES = {
   DUPLICATE_TOOL_ID: 'DUPLICATE_TOOL_ID',
   DUPLICATE_OUTPUT_PATH: 'DUPLICATE_OUTPUT_PATH',
   UNSAFE_OUTPUT_PATH: 'UNSAFE_OUTPUT_PATH',
-  UNKNOWN_OUTPUT_SCHEMA: 'UNKNOWN_OUTPUT_SCHEMA'
+  UNKNOWN_OUTPUT_SCHEMA: 'UNKNOWN_OUTPUT_SCHEMA',
+  AMBIGUOUS_TASK_GOAL: 'AMBIGUOUS_TASK_GOAL',
+  MULTIPLE_TASK_ROLES: 'MULTIPLE_TASK_ROLES',
+  MULTI_AGENT_TASK: 'MULTI_AGENT_TASK',
+  SIDE_EFFECT_REQUIRES_DEPENDENCY: 'SIDE_EFFECT_REQUIRES_DEPENDENCY'
 } as const;
 
 export interface PlanValidationContext {
@@ -134,12 +138,82 @@ export class PlanValidator {
     plan.stages.forEach((stage, stageIndex) => {
       stage.tasks.forEach((task, taskIndex) => {
         const taskPath = `stages[${stageIndex}].tasks[${taskIndex}]`;
+        errors.push(...this.validateTaskBoundary(task, taskPath));
         errors.push(...this.validateTaskTools(task, taskPath, plan, inventoryById));
         errors.push(...this.validateExpectedOutputs(task.expectedOutputs, taskPath, context.schemaRegistry, outputPaths));
       });
     });
 
     return errors;
+  }
+
+  private validateTaskBoundary(task: PlanTask, taskPath: string): PlanValidationError[] {
+    const errors: PlanValidationError[] = [];
+    const trimmedGoal = task.goal.trim();
+
+    if (trimmedGoal.split(/\s+/).length < 2 || /^(do it|handle it|fix it|make it work)$/i.test(trimmedGoal)) {
+      errors.push({
+        code: PLAN_VALIDATION_ERROR_CODES.AMBIGUOUS_TASK_GOAL,
+        message: `Task goal is too ambiguous to audit as one agent invocation: ${task.goal}`,
+        path: `${taskPath}.goal`
+      });
+    }
+
+    const declaredRoles = [
+      ...(task.role ? [{ value: task.role, path: `${taskPath}.role` }] : []),
+      ...(task.taskBoundary?.role ? [{ value: task.taskBoundary.role, path: `${taskPath}.taskBoundary.role` }] : [])
+    ];
+    const distinctRoles = new Set(declaredRoles.map(role => this.normalizeRole(role.value)));
+    if (
+      declaredRoles.some(role => this.looksLikeMultipleRoles(role.value))
+      || distinctRoles.size > 1
+    ) {
+      errors.push({
+        code: PLAN_VALIDATION_ERROR_CODES.MULTIPLE_TASK_ROLES,
+        message: 'Task declares multiple roles; split producer, verifier, synthesizer, and side-effect work into separate tasks',
+        path: declaredRoles[0]?.path ?? taskPath
+      });
+    }
+
+    if ((task.taskBoundary?.maxAgentInvocations ?? 1) > 1 || this.countAgentToolDeclarations(task) > 1) {
+      errors.push({
+        code: PLAN_VALIDATION_ERROR_CODES.MULTI_AGENT_TASK,
+        message: 'Task would trigger more than one agent invocation; split it into separate one-agent tasks',
+        path: task.taskBoundary?.maxAgentInvocations ? `${taskPath}.taskBoundary.maxAgentInvocations` : `${taskPath}.tools`
+      });
+    }
+
+    if (
+      this.isSideEffectTask(task)
+      && ((task.dependsOn?.length ?? 0) === 0 || (task.inputArtifacts?.length ?? 0) === 0)
+    ) {
+      errors.push({
+        code: PLAN_VALIDATION_ERROR_CODES.SIDE_EFFECT_REQUIRES_DEPENDENCY,
+        message: 'Side-effect tasks must declare dependsOn and inputArtifacts from prior validation evidence',
+        path: task.outputPurpose === 'sideEffect' ? `${taskPath}.outputPurpose` : `${taskPath}.goal`
+      });
+    }
+
+    return errors;
+  }
+
+  private looksLikeMultipleRoles(role: string): boolean {
+    return /[,/&+]|\band\b/i.test(role);
+  }
+
+  private normalizeRole(role: string): string {
+    return role.trim().toLowerCase();
+  }
+
+  private countAgentToolDeclarations(task: PlanTask): number {
+    return (task.tools ?? []).filter(tool => tool === 'workflow.agent').length;
+  }
+
+  private isSideEffectTask(task: PlanTask): boolean {
+    if (task.outputPurpose === 'sideEffect') {
+      return true;
+    }
+    return /\b(post|publish|submit|send|comment|merge|deploy|write comments?)\b/i.test(task.goal);
   }
 
   private validateTaskTools(

@@ -479,6 +479,7 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     const lines = [
       `Goal: ${task.goal}`,
       '',
+      ...this.buildTaskBoundaryPrompt(task),
       'Success criteria:',
       ...task.successCriteria.map(criterion => `- ${criterion}`),
       '',
@@ -507,6 +508,38 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     }
 
     return lines.join('\n');
+  }
+
+  private buildTaskBoundaryPrompt(task: PlanTask): string[] {
+    const lines: string[] = [];
+    if (task.role) {
+      lines.push(`Role: ${task.role}`);
+    }
+    if (task.outputPurpose) {
+      lines.push(`Output purpose: ${task.outputPurpose}`);
+    }
+    if (task.taskBoundary) {
+      lines.push('Task boundary:');
+      if (task.taskBoundary.role) {
+        lines.push(`- Role: ${task.taskBoundary.role}`);
+      }
+      if (task.taskBoundary.maxAgentInvocations) {
+        lines.push(`- Max agent invocations: ${task.taskBoundary.maxAgentInvocations}`);
+      }
+      if (task.taskBoundary.description) {
+        lines.push(`- ${task.taskBoundary.description}`);
+      }
+    }
+    if (task.dependsOn && task.dependsOn.length > 0) {
+      lines.push('Depends on:', ...task.dependsOn.map(taskId => `- ${taskId}`));
+    }
+    if (task.inputArtifacts && task.inputArtifacts.length > 0) {
+      lines.push('Input artifacts:', ...task.inputArtifacts.map(artifact => `- ${artifact}`));
+    }
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    return lines;
   }
 
   private createAgentTaskStep(stageId: string, task: PlanTask, prompt: string): WorkflowStep {

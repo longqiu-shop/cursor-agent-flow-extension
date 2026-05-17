@@ -81,6 +81,40 @@ test('creates declaration-only task input context with selected memory and tools
   assert.equal(fs.existsSync(result.path), true);
 });
 
+test('includes task-boundary metadata in task input context when declared', () => {
+  const runDir = tempRunDir();
+  const store = new WorkflowMemoryStore(runDir);
+  const task = {
+    ...plan.stages[0].tasks[0],
+    role: 'verifier',
+    taskBoundary: {
+      role: 'verifier',
+      maxAgentInvocations: 1
+    },
+    dependsOn: ['candidate-review'],
+    inputArtifacts: ['tasks/review/candidate-review/output.md'],
+    outputPurpose: 'verification'
+  };
+
+  const result = store.createInputContext('summarize', task, inventory);
+
+  assert.deepEqual(result.value.task, {
+    stageId: 'summarize',
+    taskId: 'summarize-changes',
+    goal: 'Summarize changes',
+    role: 'verifier',
+    taskBoundary: {
+      role: 'verifier',
+      maxAgentInvocations: 1
+    },
+    dependsOn: ['candidate-review'],
+    inputArtifacts: ['tasks/review/candidate-review/output.md'],
+    outputPurpose: 'verification',
+    successCriteria: ['Summary exists'],
+    evidenceRequired: ['tasks/summarize/summarize-changes/output.md']
+  });
+});
+
 test('rejects run directories that are not absolute', () => {
   assert.throws(() => new WorkflowMemoryStore('relative-run-dir'), /runDir must be absolute/);
 });

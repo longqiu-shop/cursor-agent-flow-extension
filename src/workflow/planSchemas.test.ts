@@ -65,6 +65,39 @@ test('validates a minimal master plan artifact', () => {
   assert.deepEqual(result.value, validMasterPlan);
 });
 
+test('validates optional task-boundary metadata on master plan tasks', () => {
+  const registry = createWorkflowSchemaRegistry();
+  const task = validMasterPlan.stages[0].tasks[0];
+  const plan = {
+    ...validMasterPlan,
+    stages: [
+      {
+        id: 'summarize',
+        tasks: [
+          {
+            ...task,
+            role: 'producer',
+            taskBoundary: {
+              role: 'producer',
+              maxAgentInvocations: 1,
+              description: 'Produce the summary only'
+            },
+            dependsOn: [],
+            inputArtifacts: [],
+            outputPurpose: 'artifact'
+          }
+        ]
+      }
+    ]
+  };
+
+  const result = registry.validate(MASTER_PLAN_SCHEMA_ID, plan);
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.value, plan);
+});
+
 test('rejects expected outputs with unvalidated fields', () => {
   const registry = createWorkflowSchemaRegistry();
   const result = registry.validate(MASTER_PLAN_SCHEMA_ID, {
