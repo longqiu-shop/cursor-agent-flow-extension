@@ -10,12 +10,15 @@ import { SkillRegistry } from './skillRegistry';
 import { AgentRegistry } from './agentRegistry';
 import { WorkflowRegistry } from '../workflow/workflowRegistry';
 import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
-import { WorkflowRun } from '../types';
+import { Schedule, WorkflowRun } from '../types';
 import { ScheduleTreeView, ScheduleTreeItem, WorkflowRunTreeItem, WorkflowStepTreeItem } from '../ui/scheduleTreeView';
 import { ScheduleEditorWebview } from '../ui/scheduleEditorWebview';
 import { RunHistoryView } from '../ui/runHistoryView';
 import { WorkflowRunDetailsView } from '../ui/workflowRunDetailsView';
 import { CursorAgentExecutor } from '../agent/keyboardAgent';
+
+const AGENTIC_BOOTSTRAP_WORKFLOW_FILE = '.cursor/workflows/agentic-workflow-bootstrap.json';
+const AGENTIC_BOOTSTRAP_WORKFLOW_ID = 'agentic-workflow-bootstrap';
 
 export class ExtensionCommands {
   private scheduleEditor: ScheduleEditorWebview;
@@ -130,10 +133,54 @@ export class ExtensionCommands {
       return;
     }
 
-    console.log('[ExtensionCommands] Agentic workflow goal captured:', { goal });
-    vscode.window.showInformationMessage(
-      `Agentic workflow goal captured: ${goal.trim()}. Direct plan runtime execution is not implemented yet.`
-    );
+    const trimmedGoal = goal.trim();
+    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal);
+
+    try {
+      this.workflowRegistry.reload();
+      const workflow = this.workflowRegistry.get(
+        AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
+        AGENTIC_BOOTSTRAP_WORKFLOW_ID
+      );
+      if (!workflow) {
+        const errors = this.workflowRegistry.getErrors()
+          .map(error => `${error.filePath}: ${error.errors.join('; ')}`)
+          .join('\n');
+        throw new Error(errors || `Workflow not found: ${AGENTIC_BOOTSTRAP_WORKFLOW_ID}`);
+      }
+
+      const runId = await this.schedulerService.runScheduleDirect(schedule);
+      this.treeView.refresh();
+      vscode.window.showInformationMessage(`Started agentic workflow run ${runId} for: ${trimmedGoal}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to start agentic workflow: ${message}`);
+    }
+  }
+
+  private createAgenticWorkflowSchedule(goal: string): Schedule {
+    return {
+      id: `agentic-workflow-${Date.now()}`,
+      name: `Agentic Workflow: ${goal.slice(0, 60)}`,
+      enabled: false,
+      cron: '0 0 1 1 *',
+      targetType: 'workflow',
+      workflowRef: {
+        filePath: AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
+        workflowId: AGENTIC_BOOTSTRAP_WORKFLOW_ID
+      },
+      promptTemplate: goal,
+      executionMode: 'ide',
+      outputConfig: {
+        type: 'none'
+      },
+      constraints: {
+        maxRuntime: 1800
+      },
+      metadata: {
+        description: 'Ad-hoc agentic workflow run from the command bridge'
+      }
+    };
   }
 
   private async enableSchedule(item: ScheduleTreeItem): Promise<void> {

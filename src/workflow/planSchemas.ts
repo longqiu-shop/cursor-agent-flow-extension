@@ -121,6 +121,15 @@ export interface OutputContractArtifact {
   expectedOutputs: ArtifactSpec[];
 }
 
+export interface TraceEvent {
+  schemaVersion: typeof PLAN_SCHEMA_VERSION;
+  id: string;
+  type: string;
+  timestamp: string;
+  parentIds?: string[];
+  refs?: Record<string, unknown>;
+}
+
 export interface PlanRunStage {
   stageRunId: string;
   stageId: string;
@@ -168,7 +177,7 @@ export function validateMasterPlan(value: unknown): SchemaValidationResult<Maste
   return finish<MasterPlan>(value, errors);
 }
 
-export function validateAuditArtifact(value: unknown): SchemaValidationResult {
+export function validateAuditArtifact(value: unknown): SchemaValidationResult<AuditArtifact> {
   const errors: string[] = [];
   const audit = expectRecord(value, AUDIT_SCHEMA_ID, errors);
   if (!audit) {
@@ -181,7 +190,7 @@ export function validateAuditArtifact(value: unknown): SchemaValidationResult {
   requireStringArray(audit, 'risks', `${AUDIT_SCHEMA_ID}.risks`, errors, true);
   requireEnum(audit, 'nextAction', ['advance', 'block', 'retry', 'needsApproval'], `${AUDIT_SCHEMA_ID}.nextAction`, errors);
 
-  return finish(value, errors);
+  return finish<AuditArtifact>(value, errors);
 }
 
 export function validatePlanAmendmentProposal(value: unknown): SchemaValidationResult {
@@ -306,7 +315,7 @@ export function validatePlanRun(value: unknown): SchemaValidationResult<PlanRun>
   return finish<PlanRun>(value, errors);
 }
 
-export function validateTraceEvent(value: unknown): SchemaValidationResult {
+export function validateTraceEvent(value: unknown): SchemaValidationResult<TraceEvent> {
   const errors: string[] = [];
   const event = expectRecord(value, TRACE_EVENT_SCHEMA_ID, errors);
   if (!event) {
@@ -330,7 +339,7 @@ export function validateTraceEvent(value: unknown): SchemaValidationResult {
     errors.push(`${TRACE_EVENT_SCHEMA_ID}.refs must be object`);
   }
 
-  return finish(value, errors);
+  return finish<TraceEvent>(value, errors);
 }
 
 function validatePlanStages(value: unknown, errors: string[]): void {

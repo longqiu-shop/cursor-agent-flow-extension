@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { WorkflowRun, WorkflowStepRun } from '../types';
+import { loadWorkflowRunTimeline, WorkflowRunTimelineEvent } from './workflowRunTimeline';
 
 export class WorkflowRunDetailsView {
   show(run: WorkflowRun): void {
@@ -16,6 +17,7 @@ export class WorkflowRunDetailsView {
   }
 
   private getHtml(webview: vscode.Webview, run: WorkflowRun): string {
+    const timeline = loadWorkflowRunTimeline(run.runDir);
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -123,6 +125,7 @@ export class WorkflowRunDetailsView {
       ${run.steps.map(step => this.renderStepRow(step, 0)).join('')}
     </tbody>
   </table>
+  ${this.renderTimeline(timeline)}
 </body>
 </html>`;
   }
@@ -138,6 +141,30 @@ export class WorkflowRunDetailsView {
       <td>${escapeHtml(notes)}</td>
     </tr>`;
     return row + (step.childRuns ?? []).map(child => this.renderStepRow(child, depth + 1)).join('');
+  }
+
+  private renderTimeline(timeline: WorkflowRunTimelineEvent[]): string {
+    if (timeline.length === 0) {
+      return '';
+    }
+
+    return `<h2>Plan Timeline</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Event</th>
+        <th>Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${timeline.map(event => `<tr>
+        <td>${new Date(event.timestamp).toLocaleString()}</td>
+        <td><code>${escapeHtml(event.type)}</code></td>
+        <td>${escapeHtml(event.summary)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
   }
 }
 

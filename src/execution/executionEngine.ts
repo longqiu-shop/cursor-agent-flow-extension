@@ -18,6 +18,7 @@ import { FanoutStepExecutor } from '../workflow/fanoutStepExecutor';
 import { JoinStepExecutor } from '../workflow/joinStepExecutor';
 import { ToolContextProvider } from '../workflow/toolContextProvider';
 import { ToolInventoryStepExecutor } from '../workflow/toolInventoryStepExecutor';
+import { PlanRuntimeStepExecutor } from '../workflow/planRuntimeStepExecutor';
 import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
 import * as vscode from 'vscode';
 
@@ -69,7 +70,8 @@ export class ExecutionEngine {
           commandRegistry,
           skillRegistry,
           agentRegistry
-        }))
+        })),
+        new PlanRuntimeStepExecutor(schemaRegistry)
       ]
     );
   }
@@ -244,7 +246,16 @@ export class ExecutionEngine {
         if (!execution.workflow) {
           throw new Error('No workflow provided');
         }
-        const workflowRun = await this.workflowRunner.run(execution.workflow, { scheduleId: schedule.id });
+        const workflowRun = await this.workflowRunner.run(execution.workflow, {
+          scheduleId: schedule.id,
+          variables: {
+            trigger: {
+              goal: schedule.promptTemplate ?? schedule.name,
+              scheduleId: schedule.id,
+              startedAt: runRecord.startedAt
+            }
+          }
+        });
         await this.handleExecutionResult(execution, runRecord, {
           success: workflowRun.status === 'succeeded',
           output: `Workflow ${workflowRun.status}`,
