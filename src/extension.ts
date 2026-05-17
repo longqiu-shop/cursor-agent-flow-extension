@@ -16,7 +16,11 @@ import { CursorAgentSubmissionQueue } from './agent/cursorAgentSubmissionQueue';
 import { StorageManager } from './storage/storageManager';
 import { ScheduleTreeView } from './ui/scheduleTreeView';
 import { ExtensionCommands } from './commands/extensionCommands';
-import { AgentChatTriggerService, AGENT_CHAT_REQUESTS_DIR } from './agentChat/agentChatTriggerService';
+import {
+  AgentChatTriggerService,
+  GLOBAL_AGENT_CHAT_REQUESTS_DIR,
+  listAgentChatRequestFiles
+} from './agentChat/agentChatTriggerService';
 
 let schedulerService: SchedulerService | undefined;
 let commandRegistry: CommandRegistry | undefined;
@@ -102,17 +106,13 @@ export function activate(context: vscode.ExtensionContext) {
     agentChatTriggerTimers.set(uri.fsPath, timer);
   };
 
-  const agentChatTriggerWatcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(vscode.workspace.workspaceFolders?.[0] || '', `${AGENT_CHAT_REQUESTS_DIR}/*.json`)
+  const globalAgentChatTriggerWatcher = vscode.workspace.createFileSystemWatcher(
+    `${GLOBAL_AGENT_CHAT_REQUESTS_DIR.replace(/\\/g, '/')}/*.json`
   );
-  agentChatTriggerWatcher.onDidCreate(queueAgentChatTrigger);
-  agentChatTriggerWatcher.onDidChange(queueAgentChatTrigger);
-  vscode.workspace.findFiles(`${AGENT_CHAT_REQUESTS_DIR}/*.json`).then(uris => {
-    uris.forEach(queueAgentChatTrigger);
-  }, (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Failed to scan agent chat trigger requests: ${message}`);
-  });
+  globalAgentChatTriggerWatcher.onDidCreate(queueAgentChatTrigger);
+  globalAgentChatTriggerWatcher.onDidChange(queueAgentChatTrigger);
+  listAgentChatRequestFiles(GLOBAL_AGENT_CHAT_REQUESTS_DIR)
+    .forEach(filePath => queueAgentChatTrigger(vscode.Uri.file(filePath)));
 
   // Initialize scheduler
   schedulerService.initialize().catch(err => {
@@ -161,7 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
     workflowRegistry!,
     runningWorkflowRegistry!,
     schedulesFileWatcher,
-    agentChatTriggerWatcher,
+    globalAgentChatTriggerWatcher,
     {
       dispose: () => {
         for (const timer of agentChatTriggerTimers.values()) {

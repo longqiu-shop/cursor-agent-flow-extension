@@ -1,7 +1,9 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 export const AGENT_CHAT_REQUESTS_DIR = '.cursor/agent-flow-requests';
+export const GLOBAL_AGENT_CHAT_REQUESTS_DIR = path.join(os.homedir(), '.cursor', 'agent-flow-requests');
 export const START_AGENTIC_WORKFLOW_REQUEST_TYPE = 'startAgenticWorkflow';
 
 export type AgentChatTriggerStatus = 'started' | 'failed' | 'ignored';
@@ -17,6 +19,16 @@ type StartAgenticWorkflow = (goal: string) => Promise<string>;
 
 const REQUEST_ID_PATTERN = /^start-agentic-workflow-[A-Za-z0-9._-]+$/;
 const REQUEST_KEYS = ['goal', 'requestId', 'type'];
+
+export function listAgentChatRequestFiles(directory: string): string[] {
+  try {
+    return fs.readdirSync(directory)
+      .filter(fileName => fileName.endsWith('.json') && !fileName.endsWith('.result.json'))
+      .map(fileName => path.join(directory, fileName));
+  } catch {
+    return [];
+  }
+}
 
 export class AgentChatTriggerService {
   private readonly processedRequestIds = new Set<string>();
