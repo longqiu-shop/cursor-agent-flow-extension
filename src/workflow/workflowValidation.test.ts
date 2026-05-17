@@ -95,6 +95,19 @@ test('rejects agent promptFile paths outside the workflow directory', () => {
   ]);
 });
 
+test('allows extension-owned workflow assets to reference sibling prompt assets', () => {
+  const workflow = workflowWithAgentInput({
+    title: 'Plan',
+    promptFile: '../prompts/agentic-workflow-planner.md'
+  });
+  workflow.filePath = '/extension/out/assets/workflows/agentic-workflow-bootstrap.json';
+
+  const result = validateWorkflowDefinition(workflow);
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
 test('validates legacy fanout input.step', () => {
   const result = validateWorkflowDefinition(workflowWithFanoutInput({
     itemsFrom: 'steps.read-prs.output',

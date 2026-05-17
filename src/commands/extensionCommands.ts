@@ -155,12 +155,11 @@ export class ExtensionCommands {
       throw new Error('Agentic workflow goal must be non-empty');
     }
 
-    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal, requestId);
     this.workflowRegistry.reload();
     const workflow = this.workflowRegistry.get(
       AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
       AGENTIC_BOOTSTRAP_WORKFLOW_ID
-    );
+    ) ?? this.workflowRegistry.getById(AGENTIC_BOOTSTRAP_WORKFLOW_ID);
     if (!workflow) {
       const errors = this.workflowRegistry.getErrors()
         .map(error => `${error.filePath}: ${error.errors.join('; ')}`)
@@ -168,12 +167,13 @@ export class ExtensionCommands {
       throw new Error(errors || `Workflow not found: ${AGENTIC_BOOTSTRAP_WORKFLOW_ID}`);
     }
 
+    const schedule = this.createAgenticWorkflowSchedule(trimmedGoal, requestId, workflow.filePath);
     const runId = await this.schedulerService.runScheduleDirect(schedule);
     this.treeView.refresh();
     return runId;
   }
 
-  private createAgenticWorkflowSchedule(goal: string, requestId?: string): Schedule {
+  private createAgenticWorkflowSchedule(goal: string, requestId: string | undefined, workflowFilePath: string): Schedule {
     return {
       id: `agentic-workflow-${Date.now()}`,
       name: `Agentic Workflow: ${goal.slice(0, 60)}`,
@@ -181,7 +181,7 @@ export class ExtensionCommands {
       cron: '0 0 1 1 *',
       targetType: 'workflow',
       workflowRef: {
-        filePath: AGENTIC_BOOTSTRAP_WORKFLOW_FILE,
+        filePath: workflowFilePath,
         workflowId: AGENTIC_BOOTSTRAP_WORKFLOW_ID
       },
       promptTemplate: goal,

@@ -198,3 +198,74 @@ test('agent step records failed submission before returning failure', async () =
   ]);
   assert.equal(events[2].refs?.error, 'composer command unavailable');
 });
+
+test('planner step persists rendered prompt metadata and trace events', async () => {
+  const runDir = tempRunDir();
+  let submittedPrompt = '';
+  const runner = {
+    submitPrompt: async (prompt: string): Promise<AgentSubmitResult> => {
+      submittedPrompt = prompt;
+      return {
+        success: true,
+        output: 'submitted'
+      };
+    }
+  };
+  const queue = {
+    enqueue: async <T>(run: () => Promise<T>): Promise<T> => run()
+  };
+  const executor = new AgentStepExecutor(runner, queue);
+  const context = createContext(runDir, {
+    status: 'found',
+    artifactPath: path.join(runDir, 'plan/master-plan.json'),
+    value: { schemaVersion: '1' },
+    elapsedMs: 0
+  });
+  context.workflow.plannerContract = {
+    contractId: 'agentic-workflow-planner',
+    contractVersion: '1',
+    source: 'extension-default',
+    workflowPath: '/extension/out/assets/workflows/agentic-workflow-bootstrap.json',
+    promptPath: '/extension/out/assets/prompts/agentic-workflow-planner.md',
+    sha256: 'template-sha',
+    resolvedAt: '2026-05-16T00:00:00.000Z',
+    extensionVersion: '1.0.1'
+  };
+  context.variables = {
+    trigger: {
+      goal: 'Summarize changes'
+    }
+  };
+  const plannerStep: WorkflowStep = {
+    ...step,
+    input: {
+      ...step.input,
+      prompt: 'Goal: {{ trigger.goal }}'
+    }
+  };
+
+  const result = await executor.execute(plannerStep, {
+    stepRunId: 'planner',
+    definitionId: 'planner',
+    type: 'agent',
+    status: 'running'
+  }, context);
+
+  const events = readEvents(runDir);
+  const prompt = fs.readFileSync(path.join(runDir, 'planner', 'prompt.md'), 'utf-8');
+  const metadata = JSON.parse(fs.readFileSync(path.join(runDir, 'planner', 'prompt-metadata.json'), 'utf-8')) as {
+    renderedPromptSha256?: string;
+    source?: string;
+  };
+  assert.equal(result.status, 'succeeded');
+  assert.equal(prompt, 'Goal: Summarize changes');
+  assert.match(submittedPrompt, /^Goal: Summarize changes/);
+  assert.match(submittedPrompt, /Workflow step output contract:/);
+  assert.equal(metadata.source, 'extension-default');
+  assert.equal(metadata.renderedPromptSha256, events.find(event => event.type === 'planner.promptRendered')?.refs?.renderedPromptSha256);
+  assert.deepEqual(events.map(event => event.type).filter(type => type.startsWith('planner.')), [
+    'planner.contractResolved',
+    'planner.promptRendered',
+    'planner.promptSubmitted'
+  ]);
+});

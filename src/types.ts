@@ -115,12 +115,24 @@ export interface WorkflowDefinition {
   filePath: string;
   description?: string;
   version: number;
+  plannerContract?: PlannerContractMetadata;
   defaults?: {
     timeoutSeconds?: number;
     onStepFailure?: 'stop' | 'continue';
     fanoutConcurrency?: 'sequential';
   };
   steps: WorkflowStep[];
+}
+
+export interface PlannerContractMetadata {
+  contractId: string;
+  contractVersion: string;
+  source: 'extension-default' | 'project-override';
+  workflowPath: string;
+  promptPath?: string;
+  sha256?: string;
+  resolvedAt: string;
+  extensionVersion?: string;
 }
 
 export interface WorkflowStep {
