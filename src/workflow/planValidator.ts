@@ -17,6 +17,7 @@ export const PLAN_VALIDATION_ERROR_CODES = {
   JSON_PARSE_ERROR: 'JSON_PARSE_ERROR',
   SCHEMA_INVALID: 'SCHEMA_INVALID',
   UNKNOWN_CAPABILITY: 'UNKNOWN_CAPABILITY',
+  HIGH_RISK_REQUIRES_APPROVAL: 'HIGH_RISK_REQUIRES_APPROVAL',
   UNKNOWN_TOOL: 'UNKNOWN_TOOL',
   TOOL_CAPABILITY_NOT_ALLOWED: 'TOOL_CAPABILITY_NOT_ALLOWED',
   DUPLICATE_TOOL_ID: 'DUPLICATE_TOOL_ID',
@@ -65,6 +66,7 @@ export class PlanValidator {
     const errors: PlanValidationError[] = [
       ...this.validateInventory(context.toolInventory),
       ...this.validateAllowedCapabilities(plan, context),
+      ...this.validateRiskPolicy(plan),
       ...this.validateTaskPolicies(plan, context)
     ];
 
@@ -110,6 +112,18 @@ export class PlanValidator {
         message: `Plan references capability that is not allowed by the runtime: ${capability}`,
         path: 'allowedCapabilities'
       }));
+  }
+
+  private validateRiskPolicy(plan: MasterPlan): PlanValidationError[] {
+    if (plan.riskLevel !== 'high' || plan.requiresApproval === true) {
+      return [];
+    }
+
+    return [{
+      code: PLAN_VALIDATION_ERROR_CODES.HIGH_RISK_REQUIRES_APPROVAL,
+      message: 'High-risk plans require requiresApproval: true before execution',
+      path: 'requiresApproval'
+    }];
   }
 
   private validateTaskPolicies(plan: MasterPlan, context: PlanValidationContext): PlanValidationError[] {
