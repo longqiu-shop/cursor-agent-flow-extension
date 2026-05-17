@@ -9,6 +9,7 @@ import type { MasterPlan, PlanRun, ToolInventory } from './planSchemas';
 import type { WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowStepRun } from '../types';
 import type { WorkflowExecutionContext } from './workflowRunner';
 import type { ArtifactStore } from './artifactStore';
+import type { WorkflowVariables } from './variableResolver';
 
 function tempRunDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-plan-runtime-'));
@@ -117,7 +118,7 @@ function createArtifactStore(runDir: string): Pick<ArtifactStore, 'resolveArtifa
   };
 }
 
-function createContext(runDir: string, childCalls: WorkflowStep[]): WorkflowExecutionContext {
+function createContext(runDir: string, childCalls: WorkflowStep[], variables: WorkflowVariables = {}): WorkflowExecutionContext {
   const artifactStore = createArtifactStore(runDir);
   return {
     workflow: {
@@ -138,7 +139,8 @@ function createContext(runDir: string, childCalls: WorkflowStep[]): WorkflowExec
     } satisfies WorkflowRun,
     artifactStore: artifactStore as ArtifactStore,
     variables: {
-      runDir
+      runDir,
+      ...variables
     },
     token: {
       isCancellationRequested: false,
@@ -197,6 +199,44 @@ test('planRuntime executes a valid one-task plan through audit and confidence', 
   assert.equal(fs.existsSync(path.join(runDir, 'trace.json')), true);
   assert.equal(fs.existsSync(path.join(runDir, 'artifact-lineage.json')), true);
   assert.equal(fs.existsSync(path.join(runDir, 'decision-log.md')), true);
+});
+
+test('planRuntime accepts templated absolute artifact paths inside the run directory', async () => {
+  const runDir = tempRunDir();
+  const schemaRegistry = createWorkflowSchemaRegistry();
+  const artifactStore = createArtifactStore(runDir);
+  artifactStore.writeJson('plan/master-plan.json', validPlan());
+  artifactStore.writeJson('tool-inventory.json', toolInventory);
+  const childCalls: WorkflowStep[] = [];
+  const context = createContext(runDir, childCalls, {
+    steps: {
+      planner: {
+        outputArtifact: path.join(runDir, 'plan/master-plan.json')
+      },
+      inventory: {
+        outputArtifact: path.join(runDir, 'tool-inventory.json')
+      }
+    }
+  });
+  const executor = new PlanRuntimeStepExecutor(schemaRegistry);
+
+  const result = await executor.execute({
+    ...planRuntimeStep,
+    input: {
+      planArtifact: '{{ steps.planner.outputArtifact }}',
+      toolInventoryArtifact: '{{ steps.inventory.outputArtifact }}'
+    }
+  }, {
+    stepRunId: 'execute-plan',
+    definitionId: 'execute-plan',
+    type: 'planRuntime',
+    status: 'running'
+  }, context);
+  const planRun = artifactStore.readJson<PlanRun>('plan-run.json');
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(planRun?.status, 'succeeded');
+  assert.equal(childCalls.length, 1);
 });
 
 test('planRuntime blocks invalid planner JSON before task execution', async () => {
