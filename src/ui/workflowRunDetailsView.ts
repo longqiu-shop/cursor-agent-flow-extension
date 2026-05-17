@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 import { WorkflowRun, WorkflowStepRun } from '../types';
+import { buildPlanRunModel, PlanRunModel } from './planRunModel';
 import { loadWorkflowRunDebugFiles, WorkflowRunDebugFile } from './workflowRunDebugInfo';
 import { loadWorkflowRunTimeline, WorkflowRunTimelineEvent } from './workflowRunTimeline';
 
 export class WorkflowRunDetailsView {
+  constructor(private readonly isWorkflowRunActive: (runId: string) => boolean = () => false) {}
+
   show(run: WorkflowRun): void {
     const panel = vscode.window.createWebviewPanel(
       'workflowRunDetails',
@@ -21,6 +24,10 @@ export class WorkflowRunDetailsView {
   private getHtml(webview: vscode.Webview, run: WorkflowRun): string {
     const debugFiles = loadWorkflowRunDebugFiles(run.runDir);
     const timeline = loadWorkflowRunTimeline(run.runDir);
+    const planRunModel = buildPlanRunModel(run.runDir, {
+      runId: run.id,
+      activeRunIds: this.isWorkflowRunActive(run.id) ? new Set([run.id]) : new Set()
+    });
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -120,6 +127,7 @@ export class WorkflowRunDetailsView {
     <div class="detail-label">Run Directory</div>
     ${this.renderFileLink(run.runDir, run.runDir, 'reveal')}
   </div>
+  ${this.renderPlanRunModel(planRunModel)}
   ${this.renderDebugInfo(debugFiles)}
   <h2>Steps</h2>
   <table>
@@ -173,6 +181,46 @@ export class WorkflowRunDetailsView {
         <td>${this.renderFileLink(file.absolutePath, file.relativePath)}</td>
         <td>${formatBytes(file.sizeBytes)}</td>
         <td>${new Date(file.modifiedAt).toLocaleString()}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+  }
+
+  private renderPlanRunModel(model: PlanRunModel): string {
+    if (!model.available) {
+      return '';
+    }
+
+    return `<h2>Plan Run</h2>
+  <div class="detail-row">
+    <div class="detail-label">Plan Status</div>
+    <div class="status-${escapeHtml(model.status)}">${escapeHtml(model.status)}</div>
+  </div>
+  ${model.blockReason ? `<div class="detail-row"><div class="detail-label">Block Reason</div><div>${escapeHtml(model.blockReason)}</div></div>` : ''}
+  ${model.currentStageId ? `<div class="detail-row"><div class="detail-label">Current Stage</div><code>${escapeHtml(model.currentStageId)}</code></div>` : ''}
+  ${model.currentTaskId ? `<div class="detail-row"><div class="detail-label">Current Task</div><code>${escapeHtml(model.currentTaskId)}</code></div>` : ''}
+  ${model.errors.length > 0 ? `<div class="detail-row"><div class="detail-label">Artifact Read Warnings</div><div>${escapeHtml(model.errors.join('; '))}</div></div>` : ''}
+  <table>
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Status</th>
+        <th>Tools</th>
+        <th>Validation</th>
+        <th>Audit</th>
+        <th>Missing Evidence</th>
+        <th>Artifacts</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${model.tasks.map(task => `<tr>
+        <td><code>${escapeHtml(task.stageId)} / ${escapeHtml(task.taskId)}</code></td>
+        <td class="status-${escapeHtml(task.status)}">${escapeHtml(task.status)}</td>
+        <td>${escapeHtml(task.selectedTools.join(', '))}</td>
+        <td>${escapeHtml(task.validationStatus ?? '')}</td>
+        <td>${escapeHtml(task.auditNextAction ?? '')}</td>
+        <td>${escapeHtml(task.missingEvidence.join(', '))}</td>
+        <td>${task.artifacts.filter(artifact => artifact.exists).map(artifact => this.renderFileLink(artifact.absolutePath, artifact.label)).join('<br>')}</td>
       </tr>`).join('')}
     </tbody>
   </table>`;

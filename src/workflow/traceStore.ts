@@ -5,6 +5,7 @@ import {
   TraceEvent,
   validateTraceEvent
 } from './planSchemas';
+import { TraceEventType, validateTraceEventRefs } from './traceEvents';
 
 export interface TraceStoreOptions {
   now?: () => string;
@@ -57,6 +58,14 @@ export class TraceStore {
     fs.mkdirSync(this.runDir, { recursive: true });
     fs.appendFileSync(this.eventsPath(), `${JSON.stringify(event)}\n`, 'utf-8');
     return event;
+  }
+
+  appendTyped(type: TraceEventType, refs: Record<string, unknown>, parentIds: string[] = []): TraceEvent {
+    const errors = validateTraceEventRefs(type, refs);
+    if (errors.length > 0) {
+      throw new Error(errors.join('; '));
+    }
+    return this.append(type, refs, parentIds);
   }
 
   rebuildIndexes(): TraceIndex {
@@ -119,6 +128,7 @@ export class TraceStore {
         if (typeof record.path !== 'string') {
           continue;
         }
+        this.assertRunRelativeArtifactPath(record.path);
         artifacts.push({
           path: record.path,
           eventId: event.id,
@@ -155,6 +165,16 @@ export class TraceStore {
       return `: ${refs.status}`;
     }
     return '';
+  }
+
+  private assertRunRelativeArtifactPath(artifactPath: string): void {
+    if (!artifactPath || path.isAbsolute(artifactPath)) {
+      throw new Error(`Trace artifact path must be relative to runDir: ${artifactPath}`);
+    }
+    const normalized = path.normalize(artifactPath);
+    if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.includes(`${path.sep}..${path.sep}`)) {
+      throw new Error(`Trace artifact path must not escape runDir: ${artifactPath}`);
+    }
   }
 
   private eventsPath(): string {

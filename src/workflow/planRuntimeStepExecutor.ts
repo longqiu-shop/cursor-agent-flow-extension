@@ -5,6 +5,8 @@ import type { ArtifactSpec, StepStatus, WorkflowStep, WorkflowStepRun } from '..
 import {
   AuditArtifact,
   MasterPlan,
+  MEMORY_PROPOSAL_SCHEMA_ID,
+  PLAN_AMENDMENT_PROPOSAL_SCHEMA_ID,
   PLAN_SCHEMA_VERSION,
   PlanRun,
   PlanRunStage,
@@ -20,6 +22,16 @@ import { ConfidenceGate } from './confidenceGate';
 import { OutputContractManager, OutputValidationResult } from './outputContractManager';
 import { PlanValidator, PLAN_VALIDATION_ERROR_CODES } from './planValidator';
 import { TraceStore } from './traceStore';
+import { TRACE_EVENTS } from './traceEvents';
+import {
+  hashExistingFile,
+  hashExistingOutputs,
+  safeResolveRunPath,
+  TaskProvenanceArtifact,
+  TaskStatusArtifact,
+  TaskValidationArtifact,
+  taskRuntimePaths
+} from './taskRuntimeArtifacts';
 import { renderTemplate } from './variableResolver';
 import type { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 import type { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecutor } from './workflowRunner';
@@ -113,7 +125,7 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       schemaRegistry: this.schemaRegistry
     });
     context.artifactStore.writeJson('plan/plan-validation.json', validation.artifact, context.variables);
-    traceStore.append('plan.validated', {
+    traceStore.appendTyped(TRACE_EVENTS.PLAN_VALIDATED, {
       status: validation.valid ? 'passed' : 'failed',
       artifacts: [{ path: 'plan/plan-validation.json' }]
     });
@@ -181,6 +193,7 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       }
 
       this.updateStage(planRun, stage.id, 'succeeded');
+      traceStore.appendTyped(TRACE_EVENTS.STAGE_ADVANCED, { stageId: stage.id, status: 'succeeded' });
       traceStore.append('stage.completed', { stageId: stage.id, status: 'succeeded' });
     }
 
@@ -211,6 +224,8 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     traceStore: TraceStore;
   }): Promise<{ childRuns: WorkflowStepRun[]; terminalResult?: StepExecutionResult }> {
     const { planRun, stageId, task, toolInventory, outputManager, memoryStore, context, traceStore } = options;
+    const paths = taskRuntimePaths(stageId, task.id);
+    const taskStartedAt = new Date().toISOString();
     this.updateTask(planRun, stageId, task.id, 'running');
     planRun.currentStageId = stageId;
     planRun.currentTaskId = task.id;
@@ -221,8 +236,22 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     const inputContext = memoryStore.createInputContext(stageId, task, toolInventory, {
       planMemoryKeys: ['objective', 'riskLevel', 'allowedCapabilities']
     });
+    traceStore.appendTyped(TRACE_EVENTS.MEMORY_CONTEXT_CREATED, {
+      stageId,
+      taskId: task.id,
+      artifacts: [{ path: paths.inputContext }]
+    });
+    if ((task.tools ?? []).length > 0) {
+      traceStore.appendTyped(TRACE_EVENTS.TOOL_SELECTED, {
+        stageId,
+        taskId: task.id,
+        tools: task.tools ?? []
+      });
+    }
     const prompt = this.buildTaskPrompt(task, inputContext.path, outputManager, context, selectedMcpToolIds, mcpEvidencePath);
-    const childStep = this.createAgentTaskStep(stageId, task, prompt);
+    context.artifactStore.writeText(paths.taskPrompt, prompt, context.variables);
+    const planHashBeforeTask = hashExistingFile(context.run.runDir, 'plan/master-plan.json');
+    const childStep = this.createAgentTaskStep(stageId, task, prompt, paths);
     const child = await context.executeChildStep(childStep, `planRuntime.${stageId}.${task.id}`, context.variables);
 
     if (child.result.status !== 'succeeded') {
@@ -231,6 +260,40 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       planRun.status = status === 'needsApproval' ? 'needsApproval' : status === 'blocked' ? 'blocked' : status === 'cancelled' ? 'cancelled' : 'failed';
       planRun.blockReason = child.result.blockedReason ?? child.result.error ?? `Task ${task.id} did not succeed`;
       planRun.finishedAt = new Date().toISOString();
+      this.writeTaskStatus(paths.status, status, planRun.blockReason, context);
+      this.writeTaskValidation(paths.validation, {
+        valid: false,
+        checkedArtifacts: [paths.status],
+        errors: [{
+          code: 'TASK_DID_NOT_SUCCEED',
+          message: planRun.blockReason,
+          path: paths.status
+        }],
+        missingEvidence: [],
+        risks: []
+      }, context);
+      this.writeTaskProvenance({
+        path: paths.provenance,
+        stageId,
+        task,
+        taskStartedAt,
+        selectedTools: task.tools ?? [],
+        inputContextPath: paths.inputContext,
+        memoryHash: inputContext.value.provenance.memoryHash,
+        toolInventoryHash: inputContext.value.provenance.toolInventoryHash,
+        outputPaths: [paths.status, paths.validation],
+        context
+      });
+      traceStore.appendTyped(TRACE_EVENTS.TASK_VALIDATED, {
+        stageId,
+        taskId: task.id,
+        status,
+        artifacts: [{ path: paths.validation }]
+      });
+      traceStore.appendTyped(TRACE_EVENTS.STAGE_BLOCKED, {
+        stageId,
+        reason: planRun.blockReason
+      });
       traceStore.append('task.completed', {
         stageId,
         taskId: task.id,
@@ -247,18 +310,203 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       };
     }
 
+    const planHashAfterChild = hashExistingFile(context.run.runDir, 'plan/master-plan.json');
+    if (planHashBeforeTask && planHashAfterChild && planHashBeforeTask !== planHashAfterChild) {
+      const reason = 'Task modified the active master plan; plan amendments must be proposed, not applied';
+      this.updateTask(planRun, stageId, task.id, 'blocked');
+      planRun.status = 'blocked';
+      planRun.blockReason = reason;
+      planRun.finishedAt = new Date().toISOString();
+      this.writeTaskStatus(paths.status, 'blocked', reason, context);
+      this.writeTaskValidation(paths.validation, {
+        valid: false,
+        checkedArtifacts: ['plan/master-plan.json'],
+        errors: [{
+          code: 'ACTIVE_PLAN_HASH_CHANGED',
+          message: reason,
+          path: 'plan/master-plan.json'
+        }],
+        missingEvidence: [],
+        risks: []
+      }, context);
+      this.writeTaskProvenance({
+        path: paths.provenance,
+        stageId,
+        task,
+        taskStartedAt,
+        selectedTools: task.tools ?? [],
+        inputContextPath: paths.inputContext,
+        memoryHash: inputContext.value.provenance.memoryHash,
+        toolInventoryHash: inputContext.value.provenance.toolInventoryHash,
+        outputPaths: [paths.validation, paths.status, 'plan/master-plan.json'],
+        context
+      });
+      traceStore.appendTyped(TRACE_EVENTS.PLAN_RUNTIME_BLOCKED, {
+        reason,
+        stageId,
+        taskId: task.id,
+        artifacts: [{ path: paths.validation }, { path: paths.status }]
+      });
+      traceStore.appendTyped(TRACE_EVENTS.STAGE_BLOCKED, { stageId, reason });
+      return {
+        childRuns: [child.stepRun],
+        terminalResult: {
+          status: 'blocked',
+          blockedReason: reason
+        }
+      };
+    }
+
+    const nonCanonicalAmendmentPaths = this.findNonCanonicalAmendmentProposalPaths(context.run.runDir, paths.dir, paths.amendmentProposal);
+    if (nonCanonicalAmendmentPaths.length > 0) {
+      const reason = `Plan amendment proposals must be written only to ${paths.amendmentProposal}; found ${nonCanonicalAmendmentPaths.join(', ')}`;
+      this.updateTask(planRun, stageId, task.id, 'blocked');
+      planRun.status = 'blocked';
+      planRun.blockReason = reason;
+      planRun.finishedAt = new Date().toISOString();
+      this.writeTaskStatus(paths.status, 'blocked', reason, context);
+      this.writeTaskValidation(paths.validation, {
+        valid: false,
+        checkedArtifacts: nonCanonicalAmendmentPaths,
+        errors: nonCanonicalAmendmentPaths.map(artifactPath => ({
+          code: 'NON_CANONICAL_AMENDMENT_PROPOSAL',
+          message: reason,
+          path: artifactPath
+        })),
+        missingEvidence: [],
+        risks: []
+      }, context);
+      this.writeTaskProvenance({
+        path: paths.provenance,
+        stageId,
+        task,
+        taskStartedAt,
+        selectedTools: task.tools ?? [],
+        inputContextPath: paths.inputContext,
+        memoryHash: inputContext.value.provenance.memoryHash,
+        toolInventoryHash: inputContext.value.provenance.toolInventoryHash,
+        outputPaths: [...nonCanonicalAmendmentPaths, paths.validation, paths.status],
+        context
+      });
+      traceStore.appendTyped(TRACE_EVENTS.PLAN_RUNTIME_BLOCKED, {
+        reason,
+        stageId,
+        taskId: task.id,
+        artifacts: [{ path: paths.validation }, { path: paths.status }]
+      });
+      traceStore.appendTyped(TRACE_EVENTS.STAGE_BLOCKED, { stageId, reason });
+      return {
+        childRuns: [child.stepRun],
+        terminalResult: {
+          status: 'blocked',
+          blockedReason: reason
+        }
+      };
+    }
+
     const outputValidation = outputManager.validateDeclaredOutputs(task.expectedOutputs, context.variables, {
-      taskArtifactDir: `tasks/${stageId}/${task.id}`,
+      taskArtifactDir: paths.dir,
       allowlist: [
-        `tasks/${stageId}/${task.id}/input-context.json`,
+        paths.inputContext,
+        paths.taskPrompt,
+        paths.prompt,
+        paths.validation,
+        paths.provenance,
+        paths.memoryProposals,
+        paths.amendmentProposal,
         ...(mcpEvidencePath ? [mcpEvidencePath] : [])
       ]
     });
     const toolUseEvidenceValidation = this.validateToolUseEvidence(context.run.runDir, selectedMcpToolIds, mcpEvidencePath);
-    const audit = this.createDeterministicAudit(task, outputValidation, context.run.runDir, toolUseEvidenceValidation);
+    const memoryProposalValidation = this.validateOptionalJsonArtifact(paths.memoryProposals, MEMORY_PROPOSAL_SCHEMA_ID, context);
+    if (memoryProposalValidation.exists) {
+      traceStore.appendTyped(TRACE_EVENTS.MEMORY_PROPOSED, {
+        stageId,
+        taskId: task.id,
+        artifacts: [{ path: paths.memoryProposals }]
+      });
+    }
+    const taskAuthoredAuditError = this.validateNoTaskAuthoredAudit(stageId, task.id, context.run.runDir);
+    const validationErrors = [
+      ...outputValidation.errors,
+      ...memoryProposalValidation.errors,
+      ...(taskAuthoredAuditError ? [taskAuthoredAuditError] : [])
+    ];
+    const mergedOutputValidation: OutputValidationResult = {
+      valid: outputValidation.valid && validationErrors.length === 0,
+      checkedArtifacts: outputValidation.checkedArtifacts,
+      errors: validationErrors
+    };
+    const taskValidation = this.writeTaskValidation(paths.validation, {
+      valid: validationErrors.length === 0 && toolUseEvidenceValidation.missingEvidence.length === 0 && toolUseEvidenceValidation.risks.length === 0,
+      checkedArtifacts: [
+        ...outputValidation.checkedArtifacts,
+        ...toolUseEvidenceValidation.checkedArtifacts,
+        ...(memoryProposalValidation.exists ? [paths.memoryProposals] : [])
+      ],
+      errors: validationErrors,
+      missingEvidence: toolUseEvidenceValidation.missingEvidence,
+      risks: toolUseEvidenceValidation.risks
+    }, context);
+    traceStore.appendTyped(TRACE_EVENTS.TASK_VALIDATED, {
+      stageId,
+      taskId: task.id,
+      status: taskValidation.valid ? 'passed' : 'failed',
+      artifacts: [{ path: paths.validation }]
+    });
+    const amendmentResult = this.validateAmendmentProposal(paths.amendmentProposal, context);
+    if (amendmentResult.exists) {
+      const planHashAfterTask = hashExistingFile(context.run.runDir, 'plan/master-plan.json');
+      const reason = amendmentResult.valid
+        ? 'Task proposed a plan amendment; workflow blocked for review'
+        : `Task proposed an invalid plan amendment: ${amendmentResult.errors.join('; ')}`;
+      this.updateTask(planRun, stageId, task.id, 'blocked');
+      planRun.status = 'blocked';
+      planRun.blockReason = planHashBeforeTask && planHashAfterTask && planHashBeforeTask !== planHashAfterTask
+        ? `${reason}; active plan hash changed during task execution`
+        : reason;
+      planRun.finishedAt = new Date().toISOString();
+      this.writeTaskStatus(paths.status, 'blocked', planRun.blockReason, context);
+      this.writeTaskProvenance({
+        path: paths.provenance,
+        stageId,
+        task,
+        taskStartedAt,
+        selectedTools: task.tools ?? [],
+        inputContextPath: paths.inputContext,
+        memoryHash: inputContext.value.provenance.memoryHash,
+        toolInventoryHash: inputContext.value.provenance.toolInventoryHash,
+        outputPaths: [...task.expectedOutputs.map(output => output.path), paths.amendmentProposal, paths.validation, paths.status],
+        context
+      });
+      traceStore.appendTyped(TRACE_EVENTS.PLAN_AMENDMENT_PROPOSED, {
+        stageId,
+        taskId: task.id,
+        valid: amendmentResult.valid,
+        artifacts: [{ path: paths.amendmentProposal }]
+      });
+      traceStore.appendTyped(TRACE_EVENTS.PLAN_RUNTIME_BLOCKED, {
+        reason: planRun.blockReason,
+        stageId,
+        taskId: task.id,
+        artifacts: [{ path: paths.amendmentProposal }, { path: paths.status }]
+      });
+      traceStore.appendTyped(TRACE_EVENTS.STAGE_BLOCKED, {
+        stageId,
+        reason: planRun.blockReason
+      });
+      return {
+        childRuns: [child.stepRun],
+        terminalResult: {
+          status: 'blocked',
+          blockedReason: planRun.blockReason
+        }
+      };
+    }
+    const audit = this.createDeterministicAudit(task, mergedOutputValidation, context.run.runDir, toolUseEvidenceValidation);
     const auditPath = `audits/${stageId}/${task.id}/audit.json`;
     context.artifactStore.writeJson(auditPath, audit, context.variables);
-    traceStore.append('audit.completed', {
+    traceStore.appendTyped(TRACE_EVENTS.AUDIT_COMPLETED, {
       stageId,
       taskId: task.id,
       status: audit.nextAction,
@@ -269,18 +517,35 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       ]
     });
 
-    const gate = this.confidenceGate.evaluate(task, audit, outputValidation);
+    const gate = this.confidenceGate.evaluate(task, audit, mergedOutputValidation);
     if (!gate.passed) {
       this.updateTask(planRun, stageId, task.id, gate.status);
       planRun.status = gate.status === 'needsApproval' ? 'needsApproval' : gate.status === 'failed' ? 'failed' : 'blocked';
       planRun.blockReason = gate.reason;
       planRun.finishedAt = new Date().toISOString();
+      this.writeTaskStatus(paths.status, gate.status, gate.reason ?? 'Task validation failed', context);
+      this.writeTaskProvenance({
+        path: paths.provenance,
+        stageId,
+        task,
+        taskStartedAt,
+        selectedTools: task.tools ?? [],
+        inputContextPath: paths.inputContext,
+        memoryHash: inputContext.value.provenance.memoryHash,
+        toolInventoryHash: inputContext.value.provenance.toolInventoryHash,
+        outputPaths: [...task.expectedOutputs.map(output => output.path), paths.validation, auditPath, paths.status],
+        context
+      });
       traceStore.append('confidence.failed', {
         stageId,
         taskId: task.id,
         status: gate.status,
         reason: gate.reason,
         risks: gate.risks
+      });
+      traceStore.appendTyped(TRACE_EVENTS.STAGE_BLOCKED, {
+        stageId,
+        reason: gate.reason ?? 'Task validation failed'
       });
       return {
         childRuns: [child.stepRun],
@@ -293,6 +558,23 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     }
 
     this.updateTask(planRun, stageId, task.id, 'succeeded');
+    this.writeTaskProvenance({
+      path: paths.provenance,
+      stageId,
+      task,
+      taskStartedAt,
+      selectedTools: task.tools ?? [],
+      inputContextPath: paths.inputContext,
+      memoryHash: inputContext.value.provenance.memoryHash,
+      toolInventoryHash: inputContext.value.provenance.toolInventoryHash,
+      outputPaths: [...task.expectedOutputs.map(output => output.path), paths.validation, auditPath],
+      context
+    });
+    traceStore.appendTyped(TRACE_EVENTS.ARTIFACT_PRODUCED, {
+      stageId,
+      taskId: task.id,
+      artifacts: task.expectedOutputs.map(output => ({ path: output.path }))
+    });
     traceStore.append('task.completed', {
       stageId,
       taskId: task.id,
@@ -542,7 +824,7 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     return lines;
   }
 
-  private createAgentTaskStep(stageId: string, task: PlanTask, prompt: string): WorkflowStep {
+  private createAgentTaskStep(stageId: string, task: PlanTask, prompt: string, paths: ReturnType<typeof taskRuntimePaths>): WorkflowStep {
     return {
       id: `plan-${stageId}-${task.id}`,
       type: 'agent',
@@ -550,9 +832,167 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
         title: `${stageId}: ${task.id}`,
         prompt,
         freshChat: true,
-        submitMode: 'worktree'
+        submitMode: 'worktree',
+        promptArtifact: paths.prompt,
+        statusArtifact: paths.status,
+        stageId,
+        taskId: task.id
       },
       output: task.expectedOutputs[0]
+    };
+  }
+
+  private writeTaskValidation(
+    artifactPath: string,
+    artifact: Omit<TaskValidationArtifact, 'schemaVersion'>,
+    context: WorkflowExecutionContext
+  ): TaskValidationArtifact {
+    const value: TaskValidationArtifact = {
+      schemaVersion: PLAN_SCHEMA_VERSION,
+      ...artifact
+    };
+    context.artifactStore.writeJson(artifactPath, value, context.variables);
+    return value;
+  }
+
+  private writeTaskStatus(
+    artifactPath: string,
+    status: PlanTaskStatus,
+    reason: string,
+    context: WorkflowExecutionContext
+  ): void {
+    if (status === 'pending' || status === 'running' || status === 'succeeded') {
+      return;
+    }
+    const artifact: TaskStatusArtifact = {
+      schemaVersion: PLAN_SCHEMA_VERSION,
+      status,
+      reason
+    };
+    context.artifactStore.writeJson(artifactPath, artifact, context.variables);
+  }
+
+  private writeTaskProvenance(options: {
+    path: string;
+    stageId: string;
+    task: PlanTask;
+    taskStartedAt: string;
+    selectedTools: string[];
+    inputContextPath: string;
+    memoryHash?: string;
+    toolInventoryHash?: string;
+    outputPaths: string[];
+    context: WorkflowExecutionContext;
+  }): TaskProvenanceArtifact {
+    const artifact: TaskProvenanceArtifact = {
+      schemaVersion: PLAN_SCHEMA_VERSION,
+      stageId: options.stageId,
+      taskId: options.task.id,
+      startedAt: options.taskStartedAt,
+      finishedAt: new Date().toISOString(),
+      promptSha256: hashExistingFile(options.context.run.runDir, taskRuntimePaths(options.stageId, options.task.id).prompt),
+      inputContextSha256: hashExistingFile(options.context.run.runDir, options.inputContextPath),
+      memoryHash: options.memoryHash,
+      toolInventoryHash: options.toolInventoryHash,
+      selectedTools: options.selectedTools,
+      outputHashes: hashExistingOutputs(options.context.run.runDir, options.outputPaths)
+    };
+    options.context.artifactStore.writeJson(options.path, artifact, options.context.variables);
+    return artifact;
+  }
+
+  private validateOptionalJsonArtifact(
+    artifactPath: string,
+    schemaId: string,
+    context: WorkflowExecutionContext
+  ): {
+    exists: boolean;
+    errors: Array<{ code: string; message: string; path?: string }>;
+  } {
+    const resolved = safeResolveRunPath(context.run.runDir, artifactPath);
+    if (!resolved || !fs.existsSync(resolved)) {
+      return { exists: false, errors: [] };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+    } catch (error) {
+      return {
+        exists: true,
+        errors: [{
+          code: 'INVALID_RUNTIME_ARTIFACT_JSON',
+          message: error instanceof Error ? error.message : String(error),
+          path: artifactPath
+        }]
+      };
+    }
+
+    const validation = this.schemaRegistry.validate(schemaId, parsed);
+    return {
+      exists: true,
+      errors: validation.valid ? [] : validation.errors.map(message => ({
+        code: 'RUNTIME_ARTIFACT_SCHEMA_INVALID',
+        message,
+        path: artifactPath
+      }))
+    };
+  }
+
+  private validateAmendmentProposal(
+    artifactPath: string,
+    context: WorkflowExecutionContext
+  ): { exists: boolean; valid: boolean; errors: string[] } {
+    const validation = this.validateOptionalJsonArtifact(artifactPath, PLAN_AMENDMENT_PROPOSAL_SCHEMA_ID, context);
+    return {
+      exists: validation.exists,
+      valid: validation.exists && validation.errors.length === 0,
+      errors: validation.errors.map(error => error.message)
+    };
+  }
+
+  private findNonCanonicalAmendmentProposalPaths(runDir: string, taskDir: string, canonicalPath: string): string[] {
+    const resolvedTaskDir = safeResolveRunPath(runDir, taskDir);
+    if (!resolvedTaskDir || !fs.existsSync(resolvedTaskDir)) {
+      return [];
+    }
+
+    const canonical = path.normalize(canonicalPath);
+    return this.listTaskFiles(runDir, resolvedTaskDir)
+      .filter(artifactPath => path.basename(artifactPath) === 'plan-amendment-proposal.json')
+      .filter(artifactPath => path.normalize(artifactPath) !== canonical)
+      .sort();
+  }
+
+  private listTaskFiles(runDir: string, currentDir: string): string[] {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    return entries.flatMap(entry => {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        return this.listTaskFiles(runDir, fullPath);
+      }
+      if (!entry.isFile()) {
+        return [];
+      }
+      const relativePath = path.relative(runDir, fullPath);
+      return relativePath.startsWith('..') || path.isAbsolute(relativePath) ? [] : [relativePath];
+    });
+  }
+
+  private validateNoTaskAuthoredAudit(
+    stageId: string,
+    taskId: string,
+    runDir: string
+  ): { code: string; message: string; path?: string } | undefined {
+    const auditPath = `audits/${stageId}/${taskId}/audit.json`;
+    const resolved = safeResolveRunPath(runDir, auditPath);
+    if (!resolved || !fs.existsSync(resolved)) {
+      return undefined;
+    }
+    return {
+      code: 'TASK_AUTHORED_AUDIT_ARTIFACT',
+      message: `Task-authored audit artifacts are not allowed: ${auditPath}`,
+      path: auditPath
     };
   }
 

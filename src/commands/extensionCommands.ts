@@ -48,7 +48,7 @@ export class ExtensionCommands {
       storageManager
     );
     this.runHistoryView = new RunHistoryView(storageManager);
-    this.workflowRunDetailsView = new WorkflowRunDetailsView();
+    this.workflowRunDetailsView = new WorkflowRunDetailsView(runId => this.runningWorkflowRegistry.isActive(runId));
     this.agentExecutor = new CursorAgentExecutor();
   }
 

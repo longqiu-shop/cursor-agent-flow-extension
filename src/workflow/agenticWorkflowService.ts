@@ -1,5 +1,6 @@
 import { WorkflowRun } from '../types';
 import { TraceStore } from './traceStore';
+import { TRACE_EVENTS } from './traceEvents';
 import { WorkflowRegistry } from './workflowRegistry';
 import { WorkflowRunnerFactory } from './workflowRunnerFactory';
 
@@ -94,7 +95,15 @@ export class AgenticWorkflowService {
   }
 
   private recordStartTrace(run: WorkflowRun, source: AgenticWorkflowStartSource, requestId?: string, planPath?: string): void {
-    new TraceStore(run.runDir).append('agenticWorkflow.started', {
+    const traceStore = new TraceStore(run.runDir);
+    traceStore.appendTyped(TRACE_EVENTS.TRIGGER_RECEIVED, {
+      source,
+      requestId,
+      planPath
+    });
+    traceStore.appendTyped(TRACE_EVENTS.WORKFLOW_STARTED, {
+      runId: run.id,
+      workflowId: run.workflowId,
       source,
       requestId,
       planPath

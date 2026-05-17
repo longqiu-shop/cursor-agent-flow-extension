@@ -2,6 +2,7 @@ import * as path from 'path';
 import type { ArtifactSpec } from '../types';
 import {
   MasterPlan,
+  PLAN_AMENDMENT_PROPOSAL_SCHEMA_ID,
   PLAN_SCHEMA_VERSION,
   PlanTask,
   PlanValidationArtifact,
@@ -23,6 +24,7 @@ export const PLAN_VALIDATION_ERROR_CODES = {
   DUPLICATE_TOOL_ID: 'DUPLICATE_TOOL_ID',
   DUPLICATE_OUTPUT_PATH: 'DUPLICATE_OUTPUT_PATH',
   UNSAFE_OUTPUT_PATH: 'UNSAFE_OUTPUT_PATH',
+  NON_CANONICAL_AMENDMENT_PROPOSAL: 'NON_CANONICAL_AMENDMENT_PROPOSAL',
   UNKNOWN_OUTPUT_SCHEMA: 'UNKNOWN_OUTPUT_SCHEMA',
   AMBIGUOUS_TASK_GOAL: 'AMBIGUOUS_TASK_GOAL',
   MULTIPLE_TASK_ROLES: 'MULTIPLE_TASK_ROLES',
@@ -140,7 +142,7 @@ export class PlanValidator {
         const taskPath = `stages[${stageIndex}].tasks[${taskIndex}]`;
         errors.push(...this.validateTaskBoundary(task, taskPath));
         errors.push(...this.validateTaskTools(task, taskPath, plan, inventoryById));
-        errors.push(...this.validateExpectedOutputs(task.expectedOutputs, taskPath, context.schemaRegistry, outputPaths));
+        errors.push(...this.validateExpectedOutputs(task.expectedOutputs, taskPath, stage.id, task.id, context.schemaRegistry, outputPaths));
       });
     });
 
@@ -252,6 +254,8 @@ export class PlanValidator {
   private validateExpectedOutputs(
     expectedOutputs: ArtifactSpec[],
     taskPath: string,
+    stageId: string,
+    taskId: string,
     schemaRegistry: WorkflowSchemaRegistry | undefined,
     outputPaths: Set<string>
   ): PlanValidationError[] {
@@ -259,7 +263,8 @@ export class PlanValidator {
 
     expectedOutputs.forEach((output, outputIndex) => {
       const outputPath = `${taskPath}.expectedOutputs[${outputIndex}]`;
-      for (const error of validateArtifactPath(output.path, outputPath)) {
+      const artifactPathErrors = validateArtifactPath(output.path, outputPath);
+      for (const error of artifactPathErrors) {
         errors.push({
           code: PLAN_VALIDATION_ERROR_CODES.UNSAFE_OUTPUT_PATH,
           message: error,
@@ -268,6 +273,22 @@ export class PlanValidator {
       }
 
       const normalizedPath = path.normalize(output.path);
+      const taskArtifactPrefix = path.normalize(`tasks/${stageId}/${taskId}/`);
+      const canonicalAmendmentPath = path.normalize(`tasks/${stageId}/${taskId}/plan-amendment-proposal.json`);
+      if (artifactPathErrors.length === 0 && !normalizedPath.startsWith(taskArtifactPrefix)) {
+        errors.push({
+          code: PLAN_VALIDATION_ERROR_CODES.UNSAFE_OUTPUT_PATH,
+          message: `Expected output path must stay under tasks/${stageId}/${taskId}/: ${output.path}`,
+          path: outputPath
+        });
+      }
+      if (output.schema === PLAN_AMENDMENT_PROPOSAL_SCHEMA_ID && normalizedPath !== canonicalAmendmentPath) {
+        errors.push({
+          code: PLAN_VALIDATION_ERROR_CODES.NON_CANONICAL_AMENDMENT_PROPOSAL,
+          message: `Plan amendment proposals must use ${canonicalAmendmentPath}`,
+          path: `${outputPath}.path`
+        });
+      }
       if (outputPaths.has(normalizedPath)) {
         errors.push({
           code: PLAN_VALIDATION_ERROR_CODES.DUPLICATE_OUTPUT_PATH,

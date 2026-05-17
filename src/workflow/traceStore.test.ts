@@ -74,3 +74,13 @@ test('rejects corrupted events when rebuilding indexes', () => {
 
   assert.throws(() => store.rebuildIndexes(), /not valid JSON/);
 });
+
+test('rejects artifact lineage entries outside the run directory', () => {
+  const runDir = tempRunDir();
+  const store = new TraceStore(runDir);
+  store.append('artifact.produced', {
+    artifacts: [{ path: '../outside.md' }]
+  });
+
+  assert.throws(() => store.rebuildIndexes(), /must not escape runDir/);
+});
