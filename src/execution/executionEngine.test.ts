@@ -33,3 +33,18 @@ test('extension manifest exposes the agentic workflow command path', () => {
     true
   );
 });
+
+test('extension wires agent chat request files to the agentic workflow starter', () => {
+  const extensionSource = fs.readFileSync(path.resolve(process.cwd(), 'src/extension.ts'), 'utf-8');
+  const commandSource = fs.readFileSync(path.resolve(process.cwd(), 'src/commands/extensionCommands.ts'), 'utf-8');
+
+  assert.match(
+    extensionSource,
+    /new AgentChatTriggerService\(goal => commands\.startAgenticWorkflowFromGoal\(goal\)\)/
+  );
+  assert.match(extensionSource, /new vscode\.RelativePattern\(vscode\.workspace\.workspaceFolders\?\.\[0\] \|\| '', `\$\{AGENT_CHAT_REQUESTS_DIR\}\/\*\.json`\)/);
+  assert.match(extensionSource, /agentChatTriggerWatcher\.onDidCreate\(queueAgentChatTrigger\)/);
+  assert.match(extensionSource, /agentChatTriggerWatcher\.onDidChange\(queueAgentChatTrigger\)/);
+  assert.match(commandSource, /async startAgenticWorkflowFromGoal\(goal: string\): Promise<string>/);
+  assert.match(commandSource, /const runId = await this\.schedulerService\.runScheduleDirect\(schedule\)/);
+});

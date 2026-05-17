@@ -101,21 +101,21 @@ The extension contributes these command palette commands:
 
 | Command | Purpose |
 | --- | --- |
-| `Agent Schedules: Add Schedule` | Create a schedule in the webview editor. |
-| `Agent Schedules: Edit` | Edit an existing schedule. |
-| `Agent Schedules: Run Now` | Run a schedule immediately. |
-| `Agent Schedules: Enable` | Enable a disabled schedule. |
-| `Agent Schedules: Disable` | Disable an enabled schedule. |
-| `Agent Schedules: View Run History` | View recorded schedule run history. |
-| `Agent Schedules: View Active Workflow Runs` | Pick from active workflow runs. |
-| `Agent Schedules: Inspect Workflow Run` | Show workflow run and step details. |
-| `Agent Schedules: Open Workflow Run Folder` | Reveal a workflow run artifact folder. |
-| `Agent Schedules: Cancel Workflow Run` | Cancel a cancellable workflow run. |
-| `Agent Schedules: Start Agentic Workflow` | Prompt for a goal and start the agentic workflow bootstrap. |
-| `Agent Schedules: Reload Commands` | Reload commands, skills, agents, and workflows. |
-| `Agent Schedules: Test Execution` | Submit a quick test prompt to Cursor. |
+| `Cursor Agent Flow: Add Schedule` | Create a schedule in the webview editor. |
+| `Cursor Agent Flow: Edit` | Edit an existing schedule. |
+| `Cursor Agent Flow: Run Now` | Run a schedule immediately. |
+| `Cursor Agent Flow: Enable` | Enable a disabled schedule. |
+| `Cursor Agent Flow: Disable` | Disable an enabled schedule. |
+| `Cursor Agent Flow: View Run History` | View recorded schedule run history. |
+| `Cursor Agent Flow: View Active Workflow Runs` | Pick from active workflow runs. |
+| `Cursor Agent Flow: Inspect Workflow Run` | Show workflow run and step details. |
+| `Cursor Agent Flow: Open Workflow Run Folder` | Reveal a workflow run artifact folder. |
+| `Cursor Agent Flow: Cancel Workflow Run` | Cancel a cancellable workflow run. |
+| `Cursor Agent Flow: Start Agentic Workflow` | Prompt for a goal and start the agentic workflow bootstrap. |
+| `Cursor Agent Flow: Reload Commands` | Reload commands, skills, agents, and workflows. |
+| `Cursor Agent Flow: Test Execution` | Submit a quick test prompt to Cursor. |
 
-The Agent Schedules tree appears in the Explorer view.
+The Cursor Agent Flow tree appears in the Explorer view.
 
 ## Schedule Configuration
 
@@ -307,7 +307,7 @@ The MVP agentic workflow is an ad-hoc workflow runtime layered on top of the sta
 Trigger it from the command palette:
 
 ```text
-Agent Schedules: Start Agentic Workflow
+Cursor Agent Flow: Start Agentic Workflow
 ```
 
 The command prompts for a goal, creates an ad-hoc workflow schedule, and runs:
@@ -326,13 +326,17 @@ toolInventory -> planner -> planRuntime
 - `planner` reads `.cursor/workflows/agentic-workflow-planner.md` and writes loose planner JSON to `plan/master-plan.json`.
 - `planRuntime` validates the plan, writes authoritative state to `plan-run.json`, creates per-task input context, executes agent tasks, validates declared outputs, writes deterministic audit artifacts, and emits trace artifacts.
 
-There is also a project skill wrapper:
+Cursor chat can also trigger the workflow by writing a request file:
 
-```text
-.cursor/skills/start-agentic-workflow/SKILL.md
+```json
+{
+  "type": "startAgenticWorkflow",
+  "requestId": "start-agentic-workflow-<timestamp>",
+  "goal": "Summarize today's git changes"
+}
 ```
 
-Use it from Cursor chat when asking to start, trigger, or run an agentic workflow. If the chat agent cannot invoke VS Code commands directly, the skill instructs the user to run `Agent Schedules: Start Agentic Workflow` manually.
+Write it to `.cursor/agent-flow-requests/<requestId>.json`. The extension validates the request, starts the same bootstrap workflow, and writes `.cursor/agent-flow-requests/<requestId>.result.json` with `status: "started"` and a `runId`, or `status: "failed"` with an `error`.
 
 Agentic workflow runs write artifacts under:
 
@@ -360,7 +364,7 @@ Important artifacts include:
 Manual smoke test:
 
 1. Open this repository in an Extension Development Host.
-2. Run `Agent Schedules: Start Agentic Workflow`.
+2. Run `Cursor Agent Flow: Start Agentic Workflow`.
 3. Enter a small goal, for example `Summarize today's git changes`.
 4. Wait for the planner and runtime agent prompts to complete.
 5. Open the Agent Schedules view and inspect the workflow run.
