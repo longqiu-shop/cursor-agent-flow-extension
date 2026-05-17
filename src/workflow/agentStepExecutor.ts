@@ -1,13 +1,12 @@
+import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { ArtifactSpec, StepStatusArtifact, WorkflowStep, WorkflowStepRun } from '../types';
-import { CursorAgentRunner } from '../agent/cursorAgentRunner';
-import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue';
-import { readFileSafe } from '../utils/fileUtils';
+import type { AgentCommandInvocationEvent, AgentSubmitOptions, AgentSubmitResult } from '../agent/cursorAgentRunner';
 import { renderTemplate } from './variableResolver';
-import { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecutor } from './workflowRunner';
-import { ArtifactWaitResult } from './artifactStore';
+import type { StepExecutionResult, WorkflowExecutionContext, WorkflowStepExecutor } from './workflowRunner';
+import type { ArtifactWaitResult } from './artifactStore';
 import { STEP_STATUS_SCHEMA_ID } from './workflowSchemas';
+import { TraceStore } from './traceStore';
 
 interface AgentStepInput {
   title?: string;
@@ -17,12 +16,49 @@ interface AgentStepInput {
   submitMode?: 'worktree' | 'currentWorkspace';
 }
 
+interface AgentPromptRunner {
+  submitPrompt(prompt: string, options?: AgentSubmitOptions): Promise<AgentSubmitResult>;
+}
+
+interface AgentSubmissionQueue {
+  enqueue<T>(run: () => Promise<T>, token?: WorkflowExecutionContext['token']): Promise<T>;
+}
+
+class SimpleCancellationTokenSource {
+  private listeners: Array<() => void> = [];
+  readonly token = {
+    isCancellationRequested: false,
+    onCancellationRequested: (listener: () => void) => {
+      this.listeners.push(listener);
+      return {
+        dispose: () => {
+          this.listeners = this.listeners.filter(item => item !== listener);
+        }
+      };
+    }
+  };
+
+  cancel(): void {
+    if (this.token.isCancellationRequested) {
+      return;
+    }
+    this.token.isCancellationRequested = true;
+    for (const listener of [...this.listeners]) {
+      listener();
+    }
+  }
+
+  dispose(): void {
+    this.listeners = [];
+  }
+}
+
 export class AgentStepExecutor implements WorkflowStepExecutor {
   readonly type = 'agent' as const;
 
   constructor(
-    private readonly runner: CursorAgentRunner,
-    private readonly submissionQueue: CursorAgentSubmissionQueue
+    private readonly runner: AgentPromptRunner,
+    private readonly submissionQueue: AgentSubmissionQueue
   ) {}
 
   async execute(step: WorkflowStep, stepRun: WorkflowStepRun, context: WorkflowExecutionContext): Promise<StepExecutionResult> {
@@ -53,28 +89,61 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     stepRun.promptPreview = promptTemplate.value.slice(0, 200);
     stepRun.expectedArtifact = outputPath;
 
+    const traceStore = new TraceStore(context.run.runDir);
+    const traceRefs = this.buildTraceRefs(step, stepRun, title, outputPath, statusPath);
     const prompt = this.buildPrompt(renderTemplate(promptTemplate.value, context.variables), outputPath, statusPath, step.output.format);
-    const submitResult = await this.submissionQueue.enqueue(
-      () => this.runner.submitPrompt(prompt, {
-        title,
-        freshChat: input?.freshChat !== false,
-        submitMode: input?.submitMode ?? 'worktree'
-      }),
-      context.token
-    );
+    this.appendSubmissionEvent(traceStore, 'queued', traceRefs, {
+      freshChat: input?.freshChat !== false,
+      submitMode: input?.submitMode ?? 'worktree'
+    });
+
+    let submitResult: AgentSubmitResult;
+    try {
+      submitResult = await this.submissionQueue.enqueue(
+        () => {
+          this.appendSubmissionEvent(traceStore, 'submitting', traceRefs);
+          return this.runner.submitPrompt(prompt, {
+            title,
+            freshChat: input?.freshChat !== false,
+            submitMode: input?.submitMode ?? 'worktree',
+            onCommand: event => this.appendCommandEvent(traceStore, traceRefs, event)
+          });
+        },
+        context.token
+      );
+    } catch (error) {
+      this.appendSubmissionEvent(traceStore, 'failed', traceRefs, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
 
     if (!submitResult.success) {
+      this.appendSubmissionEvent(traceStore, 'failed', traceRefs, {
+        error: submitResult.error || 'Failed to submit agent prompt'
+      });
       return {
         status: 'failed',
         error: submitResult.error || 'Failed to submit agent prompt'
       };
     }
 
+    this.appendSubmissionEvent(traceStore, 'submitted', traceRefs);
+    this.appendSubmissionEvent(traceStore, 'waitingForArtifact', traceRefs, {
+      artifacts: [
+        { path: outputPath, role: 'output' },
+        { path: statusPath, role: 'status' }
+      ]
+    });
     const waitResult = await this.waitForOutputOrStatus(step.output, statusSpec, context);
     if (waitResult.status === 'cancelled') {
+      this.appendSubmissionEvent(traceStore, 'cancelled', traceRefs);
       return { status: 'cancelled' };
     }
     if (waitResult.status === 'timeout') {
+      this.appendSubmissionEvent(traceStore, 'artifactWaitTimedOut', traceRefs, {
+        error: waitResult.error
+      });
       return {
         status: 'timedOut',
         error: waitResult.error
@@ -82,6 +151,11 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     }
     if (waitResult.statusArtifact) {
       const statusArtifact = waitResult.value as StepStatusArtifact;
+      this.appendSubmissionEvent(traceStore, 'statusArtifactFound', traceRefs, {
+        status: statusArtifact.status,
+        reason: statusArtifact.reason,
+        artifacts: [{ path: statusPath, role: 'status' }]
+      });
       return {
         status: statusArtifact.status === 'blocked' ? 'blocked' : 'failed',
         blockedReason: statusArtifact.status === 'blocked' ? statusArtifact.reason : undefined,
@@ -90,6 +164,9 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       };
     }
 
+    this.appendSubmissionEvent(traceStore, 'artifactFound', traceRefs, {
+      artifacts: [{ path: outputPath, role: 'output' }]
+    });
     return {
       status: 'succeeded',
       outputArtifact: outputPath,
@@ -111,14 +188,15 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       ? context.workflow.defaults.timeoutSeconds * 1000
       : 600000;
 
-    const waitTokenSource = new vscode.CancellationTokenSource();
+    const waitTokenSource = new SimpleCancellationTokenSource();
     const parentCancellation = context.token.onCancellationRequested(() => waitTokenSource.cancel());
 
     try {
+      const waitToken = waitTokenSource.token as unknown as WorkflowExecutionContext['token'];
       const waitResult = await Promise.race([
-        context.artifactStore.waitForArtifact(outputSpec, context.variables, { timeoutMs, token: waitTokenSource.token })
+        context.artifactStore.waitForArtifact(outputSpec, context.variables, { timeoutMs, token: waitToken })
           .then(result => ({ kind: 'output' as const, result })),
-        context.artifactStore.waitForArtifact<StepStatusArtifact>(statusSpec, context.variables, { timeoutMs, token: waitTokenSource.token })
+        context.artifactStore.waitForArtifact<StepStatusArtifact>(statusSpec, context.variables, { timeoutMs, token: waitToken })
           .then(result => ({ kind: 'status' as const, result }))
       ]);
       waitTokenSource.cancel();
@@ -199,7 +277,7 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       };
     }
 
-    const content = readFileSafe(promptFilePath);
+    const content = this.readFileSafe(promptFilePath);
     if (content === undefined) {
       return {
         ok: false,
@@ -208,6 +286,58 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     }
 
     return { ok: true, value: content.trim() };
+  }
+
+  private buildTraceRefs(
+    step: WorkflowStep,
+    stepRun: WorkflowStepRun,
+    title: string,
+    outputPath: string,
+    statusPath: string
+  ): Record<string, unknown> {
+    return {
+      stepId: step.id,
+      stepRunId: stepRun.stepRunId,
+      definitionId: stepRun.definitionId,
+      title,
+      expectedArtifact: outputPath,
+      statusArtifact: statusPath
+    };
+  }
+
+  private appendSubmissionEvent(
+    traceStore: TraceStore,
+    checkpoint: string,
+    traceRefs: Record<string, unknown>,
+    refs: Record<string, unknown> = {}
+  ): void {
+    traceStore.append(`agentSubmission.${checkpoint}`, {
+      ...traceRefs,
+      checkpoint,
+      ...refs
+    });
+  }
+
+  private appendCommandEvent(
+    traceStore: TraceStore,
+    traceRefs: Record<string, unknown>,
+    event: AgentCommandInvocationEvent
+  ): void {
+    traceStore.append('agentSubmission.command', {
+      ...traceRefs,
+      command: event.command,
+      phase: event.phase,
+      commandTimestamp: event.timestamp,
+      ...(event.error ? { error: event.error } : {})
+    });
+  }
+
+  private readFileSafe(filePath: string): string | undefined {
+    try {
+      return fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      return undefined;
+    }
   }
 
   private resolvePromptFilePath(workflowFilePath: string, promptFile: string): string {

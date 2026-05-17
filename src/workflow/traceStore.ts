@@ -35,9 +35,11 @@ export class TraceStore {
     if (!path.isAbsolute(runDir)) {
       throw new Error(`runDir must be absolute: ${runDir}`);
     }
+    this.nextEventNumber = this.findNextEventNumber();
   }
 
   append(type: string, refs: Record<string, unknown> = {}, parentIds: string[] = []): TraceEvent {
+    this.nextEventNumber = Math.max(this.nextEventNumber, this.findNextEventNumber());
     const event: TraceEvent = {
       schemaVersion: PLAN_SCHEMA_VERSION,
       id: `event-${this.nextEventNumber++}`,
@@ -157,6 +159,34 @@ export class TraceStore {
 
   private eventsPath(): string {
     return path.join(this.runDir, 'events.jsonl');
+  }
+
+  private findNextEventNumber(): number {
+    if (!fs.existsSync(this.eventsPath())) {
+      return 1;
+    }
+
+    let highestEventNumber = 0;
+    const lines = fs.readFileSync(this.eventsPath(), 'utf-8').split(/\r?\n/);
+    for (const line of lines) {
+      if (line.trim().length === 0) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(line) as { id?: unknown };
+        if (typeof parsed.id !== 'string') {
+          continue;
+        }
+        const match = /^event-(\d+)$/.exec(parsed.id);
+        if (!match) {
+          continue;
+        }
+        highestEventNumber = Math.max(highestEventNumber, Number(match[1]));
+      } catch {
+        // Keep append best-effort; rebuildIndexes still reports corrupted history.
+      }
+    }
+    return highestEventNumber + 1;
   }
 
   private tracePath(): string {
