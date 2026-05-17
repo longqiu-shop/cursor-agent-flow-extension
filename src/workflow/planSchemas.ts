@@ -8,6 +8,7 @@ export const PLAN_AMENDMENT_PROPOSAL_SCHEMA_ID = 'plan-amendment-proposal@1';
 export const TOOL_INVENTORY_SCHEMA_ID = 'tool-inventory@1';
 export const MEMORY_PROPOSAL_SCHEMA_ID = 'memory-proposal@1';
 export const OUTPUT_CONTRACT_SCHEMA_ID = 'output-contract@1';
+export const TOOL_USE_EVIDENCE_SCHEMA_ID = 'tool-use-evidence@1';
 export const PLAN_VALIDATION_SCHEMA_ID = 'plan-validation@1';
 export const PLAN_RUN_SCHEMA_ID = 'plan-run@1';
 export const TRACE_EVENT_SCHEMA_ID = 'trace-event@1';
@@ -74,7 +75,7 @@ export interface PlanValidationArtifact {
   warnings?: PlanValidationError[];
 }
 
-export type ToolInventorySource = 'skills' | 'agents' | 'commands' | 'workflowPrimitives' | 'runtimeActions';
+export type ToolInventorySource = 'skills' | 'agents' | 'commands' | 'workflowPrimitives' | 'runtimeActions' | 'mcpTools';
 
 export interface ToolInventoryEntry {
   id: string;
@@ -119,6 +120,13 @@ export interface MemoryProposalArtifact {
 export interface OutputContractArtifact {
   schemaVersion: typeof PLAN_SCHEMA_VERSION;
   expectedOutputs: ArtifactSpec[];
+}
+
+export interface ToolUseEvidenceArtifact {
+  schemaVersion: typeof PLAN_SCHEMA_VERSION;
+  claimedToolsUsed: string[];
+  evidence: string[];
+  notes?: string;
 }
 
 export interface TraceEvent {
@@ -259,6 +267,23 @@ export function validateOutputContract(value: unknown): SchemaValidationResult {
   validateExpectedOutputs(contract.expectedOutputs, `${OUTPUT_CONTRACT_SCHEMA_ID}.expectedOutputs`, errors);
 
   return finish(value, errors);
+}
+
+export function validateToolUseEvidence(value: unknown): SchemaValidationResult<ToolUseEvidenceArtifact> {
+  const errors: string[] = [];
+  const artifact = expectRecord(value, TOOL_USE_EVIDENCE_SCHEMA_ID, errors);
+  if (!artifact) {
+    return invalid(errors);
+  }
+
+  validateSchemaVersion(artifact, TOOL_USE_EVIDENCE_SCHEMA_ID, errors);
+  requireStringArray(artifact, 'claimedToolsUsed', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.claimedToolsUsed`, errors);
+  requireStringArray(artifact, 'evidence', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.evidence`, errors);
+  if (artifact.notes !== undefined && typeof artifact.notes !== 'string') {
+    errors.push(`${TOOL_USE_EVIDENCE_SCHEMA_ID}.notes must be string`);
+  }
+
+  return finish<ToolUseEvidenceArtifact>(value, errors);
 }
 
 export function validatePlanValidationArtifact(value: unknown): SchemaValidationResult<PlanValidationArtifact> {
@@ -474,7 +499,7 @@ function validateToolEntries(value: unknown, errors: string[]): void {
       return;
     }
     requireNonEmptyString(tool, 'id', `${path}.id`, errors);
-    requireEnum(tool, 'source', ['skills', 'agents', 'commands', 'workflowPrimitives', 'runtimeActions'], `${path}.source`, errors);
+    requireEnum(tool, 'source', ['skills', 'agents', 'commands', 'workflowPrimitives', 'runtimeActions', 'mcpTools'], `${path}.source`, errors);
     requireStringArray(tool, 'capabilities', `${path}.capabilities`, errors, true);
     if (tool.description !== undefined && typeof tool.description !== 'string') {
       errors.push(`${path}.description must be string`);

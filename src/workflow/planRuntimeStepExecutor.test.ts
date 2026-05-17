@@ -63,6 +63,19 @@ const toolInventory: ToolInventory = {
   ]
 };
 
+const toolInventoryWithMcp: ToolInventory = {
+  schemaVersion: '1',
+  tools: [
+    ...toolInventory.tools,
+    {
+      id: 'mcp.user-github.list_pull_requests',
+      source: 'mcpTools',
+      capabilities: ['read'],
+      description: 'List GitHub pull requests'
+    }
+  ]
+};
+
 const planRuntimeStep: WorkflowStep = {
   id: 'execute-plan',
   type: 'planRuntime',
@@ -237,6 +250,36 @@ test('planRuntime accepts templated absolute artifact paths inside the run direc
   assert.equal(result.status, 'succeeded');
   assert.equal(planRun?.status, 'succeeded');
   assert.equal(childCalls.length, 1);
+});
+
+test('planRuntime blocks when selected MCP tools have no tool-use evidence', async () => {
+  const runDir = tempRunDir();
+  const schemaRegistry = createWorkflowSchemaRegistry();
+  const artifactStore = createArtifactStore(runDir);
+  const plan = validPlan();
+  plan.stages[0].tasks[0].tools = ['workflow.agent', 'mcp.user-github.list_pull_requests'];
+  artifactStore.writeJson('plan/master-plan.json', plan);
+  artifactStore.writeJson('tool-inventory.json', toolInventoryWithMcp);
+  const childCalls: WorkflowStep[] = [];
+  const context = createContext(runDir, childCalls);
+  const executor = new PlanRuntimeStepExecutor(schemaRegistry);
+
+  const result = await executor.execute(planRuntimeStep, {
+    stepRunId: 'execute-plan',
+    definitionId: 'execute-plan',
+    type: 'planRuntime',
+    status: 'running'
+  }, context);
+  const planRun = artifactStore.readJson<PlanRun>('plan-run.json');
+  const audit = artifactStore.readJson<{ missingEvidence: string[] }>('audits/summarize/summarize-changes/audit.json');
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(planRun?.status, 'blocked');
+  assert.equal(planRun?.tasks?.[0].status, 'blocked');
+  assert.match((childCalls[0].input as { prompt: string }).prompt, /Advisory MCP tool evidence/);
+  assert.deepEqual(audit?.missingEvidence, [
+    'MCP tool-use evidence was not produced: tasks/summarize/summarize-changes/tool-use-evidence.json'
+  ]);
 });
 
 test('planRuntime blocks invalid planner JSON before task execution', async () => {

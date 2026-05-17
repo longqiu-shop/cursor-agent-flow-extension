@@ -5,7 +5,8 @@ import {
   MASTER_PLAN_SCHEMA_ID,
   PLAN_RUN_SCHEMA_ID,
   TRACE_EVENT_SCHEMA_ID,
-  TOOL_INVENTORY_SCHEMA_ID
+  TOOL_INVENTORY_SCHEMA_ID,
+  TOOL_USE_EVIDENCE_SCHEMA_ID
 } from './planSchemas';
 import { createWorkflowSchemaRegistry } from './workflowSchemas';
 
@@ -50,6 +51,7 @@ test('registers built-in plan runtime schemas', () => {
   assert.equal(registry.has(MASTER_PLAN_SCHEMA_ID), true);
   assert.equal(registry.has(AUDIT_SCHEMA_ID), true);
   assert.equal(registry.has(TOOL_INVENTORY_SCHEMA_ID), true);
+  assert.equal(registry.has(TOOL_USE_EVIDENCE_SCHEMA_ID), true);
   assert.equal(registry.has(PLAN_RUN_SCHEMA_ID), true);
   assert.equal(registry.has(TRACE_EVENT_SCHEMA_ID), true);
 });
@@ -143,8 +145,26 @@ test('validates tool inventory artifacts', () => {
         source: 'workflowPrimitives',
         capabilities: ['read'],
         description: 'Run a Cursor agent task'
+      },
+      {
+        id: 'mcp.user-github.list_pull_requests',
+        source: 'mcpTools',
+        capabilities: ['read'],
+        description: 'List GitHub pull requests'
       }
     ]
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
+test('validates MCP tool-use evidence artifacts', () => {
+  const registry = createWorkflowSchemaRegistry();
+  const result = registry.validate(TOOL_USE_EVIDENCE_SCHEMA_ID, {
+    schemaVersion: '1',
+    claimedToolsUsed: ['mcp.user-github.list_pull_requests'],
+    evidence: ['Queried open pull requests for owner/repo and summarized result URLs.']
   });
 
   assert.equal(result.valid, true);

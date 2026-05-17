@@ -20,6 +20,7 @@ import { ToolContextProvider } from '../workflow/toolContextProvider';
 import { ToolInventoryStepExecutor } from '../workflow/toolInventoryStepExecutor';
 import { PlanRuntimeStepExecutor } from '../workflow/planRuntimeStepExecutor';
 import { WorkflowSchemaRegistry } from '../workflow/workflowSchemaRegistry';
+import { getAdditionalMcpDirectories, getDefaultMcpDescriptorDirectory } from '../utils/fileUtils';
 import * as vscode from 'vscode';
 
 interface RunningExecution {
@@ -69,7 +70,8 @@ export class ExecutionEngine {
         new ToolInventoryStepExecutor(ToolContextProvider.fromRegistries({
           commandRegistry,
           skillRegistry,
-          agentRegistry
+          agentRegistry,
+          mcpDescriptorDirectories: this.getMcpDescriptorDirectories()
         })),
         new PlanRuntimeStepExecutor(schemaRegistry)
       ]
@@ -80,6 +82,18 @@ export class ExecutionEngine {
     if (schedule.workflowRef) return 'workflow';
     if (schedule.commandRef) return schedule.targetType;
     return 'prompt';
+  }
+
+  private getMcpDescriptorDirectories(): string[] {
+    try {
+      const defaultDir = getDefaultMcpDescriptorDirectory();
+      return [
+        ...(defaultDir ? [defaultDir] : []),
+        ...getAdditionalMcpDirectories()
+      ];
+    } catch {
+      return getAdditionalMcpDirectories();
+    }
   }
 
   private getContextCommand(schedule: Schedule): Command | undefined {

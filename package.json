@@ -39,66 +39,66 @@
     "commands": [
       {
         "command": "cursorAgentFlow.add",
-        "title": "Agent Schedules: Add Schedule",
+        "title": "Cursor Agent Flow: Add Schedule",
         "icon": "$(add)"
       },
       {
         "command": "cursorAgentFlow.runNow",
-        "title": "Agent Schedules: Run Now",
+        "title": "Cursor Agent Flow: Run Now",
         "icon": "$(play)"
       },
       {
         "command": "cursorAgentFlow.edit",
-        "title": "Agent Schedules: Edit"
+        "title": "Cursor Agent Flow: Edit"
       },
       {
         "command": "cursorAgentFlow.enable",
-        "title": "Agent Schedules: Enable"
+        "title": "Cursor Agent Flow: Enable"
       },
       {
         "command": "cursorAgentFlow.disable",
-        "title": "Agent Schedules: Disable"
+        "title": "Cursor Agent Flow: Disable"
       },
       {
         "command": "cursorAgentFlow.viewRuns",
-        "title": "Agent Schedules: View Run History"
+        "title": "Cursor Agent Flow: View Run History"
       },
       {
         "command": "cursorAgentFlow.viewWorkflowRuns",
-        "title": "Agent Schedules: View Active Workflow Runs",
+        "title": "Cursor Agent Flow: View Active Workflow Runs",
         "icon": "$(list-tree)"
       },
       {
         "command": "cursorAgentFlow.startAgenticWorkflow",
-        "title": "Agent Schedules: Start Agentic Workflow"
+        "title": "Cursor Agent Flow: Start Agentic Workflow"
       },
       {
         "command": "cursorAgentFlow.inspectWorkflowRun",
-        "title": "Agent Schedules: Inspect Workflow Run"
+        "title": "Cursor Agent Flow: Inspect Workflow Run"
       },
       {
         "command": "cursorAgentFlow.openWorkflowRunFolder",
-        "title": "Agent Schedules: Open Workflow Run Folder"
+        "title": "Cursor Agent Flow: Open Workflow Run Folder"
       },
       {
         "command": "cursorAgentFlow.cancelWorkflowRun",
-        "title": "Agent Schedules: Cancel Workflow Run"
+        "title": "Cursor Agent Flow: Cancel Workflow Run"
       },
       {
         "command": "cursorAgentFlow.reloadCommands",
-        "title": "Agent Schedules: Reload Commands",
+        "title": "Cursor Agent Flow: Reload Commands",
         "icon": "$(refresh)"
       },
       {
         "command": "cursorAgentFlow.testExecution",
-        "title": "Agent Schedules: Test Execution"
+        "title": "Cursor Agent Flow: Test Execution"
       }
     ],
     "views": {
       "explorer": [
         {
           "id": "cursorAgentFlow",
-          "name": "Agent Schedules",
+          "name": "Cursor Agent Flow",
           "when": "true"
         }
       ]
@@ -180,7 +180,7 @@
       ]
     },
     "configuration": {
-      "title": "Agent Schedules",
+      "title": "Cursor Agent Flow",
       "properties": {
         "cursorAgentFlow.additionalCommandDirectories": {
           "type": "array",
@@ -201,6 +201,12 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Additional directories to search for agent/subagent definitions (.md, .json, .yaml). create-subagent skill writes to .cursor/agents."
+        },
+        "cursorAgentFlow.additionalMcpDirectories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional Cursor MCP descriptor directories to include in tool inventory. Each directory should contain server subdirectories with tools/*.json descriptors."
         }
       }
     }

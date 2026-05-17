@@ -13,6 +13,9 @@ MVP constraints:
 - Use one linear stage unless the goal clearly requires more.
 - Use agent tasks only.
 - Prefer tools from the inventory. For agent execution, use "workflow.agent".
+- The inventory may include "mcpTools" entries such as "mcp.<server>.<tool>". These are advisory tools for the child Cursor agent to use directly; the workflow runtime will not call MCP tools itself.
+- Select "mcpTools" only when the task needs external context that the named MCP can provide. Include those exact "mcp.*" tool ids in the task tools array.
+- If a task selects any "mcp.*" tools, add a required JSON output at "tasks/<stage-id>/<task-id>/tool-use-evidence.json" with schema "tool-use-evidence@1", and include that path in evidenceRequired.
 - Use allowedCapabilities ["read", "workspaceWrite"] only when the task needs an agent to write declared artifacts.
 - Every task must have successCriteria, evidenceRequired, confidencePolicy, expectedOutputs, and tools.
 - Every expected output path must stay under tasks/<stage-id>/<task-id>/.

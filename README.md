@@ -201,6 +201,7 @@ The extension scans these locations:
 | Commands | `.cursor/commands`, `~/.cursor/commands` | `cursorAgentFlow.additionalCommandDirectories` |
 | Skills | `.cursor/skills`, `~/.cursor/skills-cursor` | `cursorAgentFlow.additionalSkillsDirectories` |
 | Agents | `.cursor/agents`, `~/.cursor/agents` | `cursorAgentFlow.additionalAgentsDirectories` |
+| MCP tool descriptors | Cursor's per-workspace MCP descriptor cache | `cursorAgentFlow.additionalMcpDirectories` |
 | Workflows | `.cursor/workflows` | Not configurable |
 
 Relative extra directories are resolved from the current process working directory. Absolute paths and `~` are also supported.
@@ -343,12 +344,13 @@ Important artifacts include:
 
 | Artifact | Purpose |
 | --- | --- |
-| `tool-inventory.json` | Snapshot of available skills, agents, commands, workflow primitives, and runtime actions. |
+| `tool-inventory.json` | Snapshot of available skills, agents, commands, workflow primitives, runtime actions, and advisory MCP tools. |
 | `plan/master-plan.json` | Planner-authored master plan. |
 | `plan/plan-validation.json` | Structured validation result for the master plan. |
 | `plan-run.json` | Authoritative dynamic runtime state. |
 | `tasks/<stage-id>/<task-id>/input-context.json` | Declaration-only memory and tool context for a task. |
 | `tasks/<stage-id>/<task-id>/output.*` | Declared task output artifacts. |
+| `tasks/<stage-id>/<task-id>/tool-use-evidence.json` | Required when a task selects advisory `mcp.*` tools; records the child agent's claimed MCP usage. |
 | `audits/<stage-id>/<task-id>/audit.json` | Deterministic audit result used by the confidence gate. |
 | `events.jsonl` | Append-only trace event log. |
 | `trace.json` | Rebuildable trace index used by run inspection UI. |
@@ -368,7 +370,7 @@ MVP limitations:
 
 - No crash resume.
 - No automatic replanning or plan amendment application.
-- No MCP tool execution; MCP-style integrations are future work.
+- MCP tools are advisory only: the child Cursor agent can use them, but the workflow runtime does not execute MCP calls itself.
 - Confidence is deterministic pass/fail, not a numeric score.
 - Cursor IDE agent tool usage is not directly observable, so trace events record runtime-selected tools and artifacts, not internal Cursor tool calls.
 - Real end-to-end execution must be smoke-tested in a live Cursor extension host.
