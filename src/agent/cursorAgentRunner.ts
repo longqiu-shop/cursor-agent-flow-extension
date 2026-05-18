@@ -56,7 +56,8 @@ export class CursorAgentRunner {
       const correlationLabel = options.correlationId ? ` [${options.correlationId}]` : '';
       console.log(`[CursorAgentRunner]${correlationLabel} Opening chat${options.title ? `: ${options.title}` : ''}`);
       await this.executeCommandWithTelemetry('workbench.action.chat.open', { query: prompt }, options);
-      await this.wait(1000);
+      // Give Composer time to populate the query and enable the send action before triggering it.
+      await this.wait(3000);
 
       if (options.submitMode === 'currentWorkspace') {
         await this.executeCommandWithTelemetry('composer.sendToAgent', undefined, options);

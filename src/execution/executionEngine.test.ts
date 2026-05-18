@@ -77,6 +77,15 @@ test('extension wires agent chat request files to the agentic workflow starter',
   assert.doesNotMatch(commandSource, /runScheduleDirect\(schedule\)/);
 });
 
+test('cursor agent runner waits for Composer readiness before submit command', () => {
+  const runnerSource = fs.readFileSync(path.resolve(process.cwd(), 'src/agent/cursorAgentRunner.ts'), 'utf-8');
+
+  assert.match(
+    runnerSource,
+    /workbench\.action\.chat\.open'[\s\S]*await this\.wait\(3000\);[\s\S]*composer\.triggerCreateWorktreeButton/
+  );
+});
+
 test('workflow runs persist trigger metadata for reruns', () => {
   const engineSource = fs.readFileSync(path.resolve(process.cwd(), 'src/execution/executionEngine.ts'), 'utf-8');
   const runnerSource = fs.readFileSync(path.resolve(process.cwd(), 'src/workflow/workflowRunner.ts'), 'utf-8');
