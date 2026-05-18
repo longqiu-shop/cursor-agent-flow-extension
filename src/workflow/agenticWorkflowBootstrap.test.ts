@@ -17,6 +17,7 @@ test('validates the project override agentic workflow bootstrap fixture', () => 
 
   assert.equal(result.valid, true);
   assert.deepEqual(result.errors, []);
+  assert.equal(workflow.defaults?.timeoutSeconds, 1800);
   assert.deepEqual(workflow.steps.map(step => step.type), ['workflowPreferences', 'toolInventory', 'agent', 'planRuntime']);
   assert.equal(workflow.steps[0].output?.path, 'preferences/workflow-preferences.json');
   assert.deepEqual(workflow.steps[1].input?.include, ['skills', 'agents', 'commands', 'workflowPrimitives', 'runtimeActions', 'mcpTools', 'workflowPreferences']);
@@ -35,6 +36,7 @@ test('validates the extension-owned agentic workflow bootstrap asset', () => {
 
   assert.equal(result.valid, true);
   assert.deepEqual(result.errors, []);
+  assert.equal(workflow.defaults?.timeoutSeconds, 1800);
   assert.deepEqual(workflow.steps.map(step => step.type), ['workflowPreferences', 'toolInventory', 'agent', 'planRuntime']);
   assert.equal(workflow.steps[2].input?.promptFile, '../prompts/agentic-workflow-planner.md');
 });
@@ -50,6 +52,7 @@ test('validates the extension-owned ready-plan workflow asset', () => {
 
   assert.equal(result.valid, true);
   assert.deepEqual(result.errors, []);
+  assert.equal(workflow.defaults?.timeoutSeconds, 1800);
   assert.deepEqual(workflow.steps.map(step => step.type), ['planImport', 'toolInventory', 'planRuntime']);
   assert.deepEqual(workflow.steps[1].input?.include, ['skills', 'agents', 'commands', 'workflowPrimitives', 'runtimeActions', 'mcpTools', 'workflowPreferences']);
   assert.equal(workflow.steps[0].input?.planPath, '{{ trigger.planPath }}');

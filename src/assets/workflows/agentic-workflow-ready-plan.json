@@ -4,7 +4,7 @@
   "description": "Import an existing master plan document, build tool inventory, then execute it with the plan runtime.",
   "version": 1,
   "defaults": {
-    "timeoutSeconds": 900,
+    "timeoutSeconds": 1800,
     "onStepFailure": "stop"
   },
   "steps": [
