@@ -4,7 +4,7 @@
   "description": "Build a tool inventory, ask a planner agent for a master plan, then execute it with the plan runtime.",
   "version": 1,
   "defaults": {
-    "timeoutSeconds": 900,
+    "timeoutSeconds": 1800,
     "onStepFailure": "stop"
   },
   "steps": [
