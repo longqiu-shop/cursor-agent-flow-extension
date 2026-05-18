@@ -7,7 +7,7 @@ export type ExecutionMode = 'ide' | 'cloud';
 export type ScheduleType = 'cron' | 'interval';
 export type OutputType = 'markdown' | 'pr' | 'diff' | 'none';
 export type RunStatus = 'success' | 'failure' | 'skipped' | 'running';
-export type WorkflowStepType = 'agent' | 'readJson' | 'fanout' | 'join' | 'toolInventory' | 'planRuntime' | 'planImport';
+export type WorkflowStepType = 'agent' | 'readJson' | 'fanout' | 'join' | 'toolInventory' | 'workflowPreferences' | 'planRuntime' | 'planImport';
 export type WorkflowStatus =
   | 'pending'
   | 'running'

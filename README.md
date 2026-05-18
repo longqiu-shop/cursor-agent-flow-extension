@@ -7,13 +7,13 @@ The extension is designed for local Cursor automation. It stores schedules in th
 ## Features
 
 - Schedule Cursor agent work with cron expressions.
-- Run schedules manually from the Agent Schedules view.
+- Run schedules manually from the Cursor Agent Flow view.
 - Use inline prompt templates with `{date}`, `{time}`, `{datetime}`, and `{timestamp}` substitutions.
 - Load reusable commands from `.cursor/commands`, `~/.cursor/commands`, and configured extra directories.
 - Load Cursor skills from `.cursor/skills`, `~/.cursor/skills-cursor`, and configured extra directories.
 - Load agent definitions from `.cursor/agents`, `~/.cursor/agents`, and configured extra directories.
 - Run JSON workflow definitions from `.cursor/workflows`.
-- Start an agentic workflow MVP that builds a tool inventory, asks a planner agent for a master plan, and executes that plan through the runtime.
+- Start an agentic workflow MVP that discovers workflow preferences, builds a tool inventory, asks a planner agent for a master plan, and executes that plan through the runtime.
 - Track run history in workspace state.
 - Inspect, open, and cancel active workflow runs.
 
@@ -227,7 +227,8 @@ Supported workflow step types:
 | `readJson` | Read a JSON artifact, optionally validate it, and select a nested value. |
 | `fanout` | Iterate over an array and run one or more child workflow steps for each item. |
 | `join` | Collect matching artifact files and write a Markdown index. |
-| `toolInventory` | Snapshot available commands, skills, agents, workflow primitives, and runtime actions. |
+| `toolInventory` | Snapshot available commands, skills, agents, workflow primitives, runtime actions, advisory MCP tools, and workflow preferences. |
+| `workflowPreferences` | Discover freeform workflow preference notes and write planner context. |
 | `planImport` | Import and validate a ready `master-plan@1` document from a trusted path. |
 | `planRuntime` | Validate and execute a planner-produced `master-plan.json`. |
 
@@ -321,12 +322,39 @@ The command prompts for a goal, starts an ad-hoc workflow run, and runs:
 The bootstrap flow is:
 
 ```text
-toolInventory -> planner -> planRuntime
+workflowPreferences -> toolInventory -> planner -> planRuntime
 ```
 
-- `toolInventory` writes `tool-inventory.json`.
-- `planner` reads `.cursor/workflows/agentic-workflow-planner.md` and writes loose planner JSON to `plan/master-plan.json`.
+- `workflowPreferences` writes `preferences/workflow-preferences.json`.
+- `toolInventory` writes `tool-inventory.json`, including compact `workflowPreferences.*` entries.
+- `planner` reads `.cursor/workflows/agentic-workflow-planner.md`, uses workflow preferences as non-executable planning context, and writes loose planner JSON to `plan/master-plan.json`.
 - `planRuntime` validates the plan, writes authoritative state to `plan-run.json`, creates per-task input context, executes agent tasks, validates declared outputs, writes deterministic audit artifacts, and emits trace artifacts.
+
+Workflow preferences are optional Markdown notes discovered from:
+
+```text
+.cursor/agent-flow/preferences/*.md
+~/.cursor/agent-flow/preferences/*.md
+```
+
+Project preferences override global preferences with the same inferred id. A preference can be freeform:
+
+```markdown
+# PR Review Flow
+
+For PR review goals, split the plan into review, independent verification, synthesis, and posting tasks.
+Do not post comments unless the user explicitly asks for posting.
+```
+
+The planner may record selected preferences in `workflowPreferences.selectedPreferenceIds`, `interpretedRequirements`, and `conflicts`. The runtime validates only the structured master plan and that selected preference ids exist in inventory.
+
+Preference precedence is:
+
+```text
+run override -> project -> global -> built-in default
+```
+
+The built-in default preference keeps task boundaries conservative when no user preference exists.
 
 Start from a ready plan document with:
 
@@ -345,6 +373,8 @@ The ready-plan flow is:
 ```text
 planImport -> toolInventory -> planRuntime
 ```
+
+The ready-plan path still includes `workflowPreferences.*` inventory entries so imported plans that declare `workflowPreferences.selectedPreferenceIds` can be validated against available preferences.
 
 Cursor chat can also trigger the workflow by writing a request file:
 
@@ -380,7 +410,8 @@ Important artifacts include:
 
 | Artifact | Purpose |
 | --- | --- |
-| `tool-inventory.json` | Snapshot of available skills, agents, commands, workflow primitives, runtime actions, and advisory MCP tools. |
+| `preferences/workflow-preferences.json` | Detailed workflow preference artifact read by the planner. |
+| `tool-inventory.json` | Snapshot of available skills, agents, commands, workflow primitives, runtime actions, advisory MCP tools, and compact workflow preference entries. |
 | `plan/master-plan.json` | Planner-authored master plan. |
 | `plan/import-validation.json` | Ready-plan import validation result when using `planImport`. |
 | `plan/plan-validation.json` | Structured validation result for the master plan. |
@@ -407,11 +438,13 @@ Manual smoke test:
 2. Run `Cursor Agent Flow: Start Agentic Workflow`.
 3. Enter a small goal, for example `Summarize today's git changes`.
 4. Wait for the planner and runtime agent prompts to complete.
-5. Open the Agent Schedules view and inspect the workflow run.
-6. Open the run folder and verify `tool-inventory.json`, `plan/master-plan.json`, `plan-run.json`, `events.jsonl`, `trace.json`, and per-task `prompt.md`, `validation.json`, and `provenance.json` exist.
+5. Open the Cursor Agent Flow view and inspect the workflow run.
+6. Open the run folder and verify `preferences/workflow-preferences.json`, `tool-inventory.json`, `plan/master-plan.json`, `plan-run.json`, `events.jsonl`, `trace.json`, and per-task `prompt.md`, `validation.json`, and `provenance.json` exist.
 7. Run `Cursor Agent Flow: Start Agentic Workflow From Plan Document` with a small valid plan under `~/.cursor/plans/`, then inspect the run and verify `plan/import-validation.json` exists.
 8. Submit an invalid ready plan and verify the run blocks before task execution with `plan/plan-validation.json` and a `planRuntime.blocked` trace event.
 9. For an advisory MCP plan, verify the selected `mcp.*` tool IDs appear in the task prompt and `tool-use-evidence.json` is required for confidence to advance.
+
+Phase 2 release readiness also requires dated live Extension Host smoke evidence for command-palette start, agent-chat trigger, ready-plan execution, invalid/high-risk block behavior, and advisory MCP evidence inspection. Until that manual evidence is recorded in `docs/phase2-smoke-evidence.md`, live smoke coverage is not complete.
 
 MVP limitations:
 

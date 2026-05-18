@@ -135,6 +135,7 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     }
 
     const plan = validation.plan;
+    this.traceSelectedWorkflowPreferences(plan, traceStore);
     const planHash = this.hash(planContent);
     planRun = this.initializeValidatedPlanRun(plan, planHash, planRun.startedAt);
     if (plan.riskLevel === 'high' && plan.requiresApproval === true) {
@@ -822,6 +823,24 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
       lines.push('');
     }
     return lines;
+  }
+
+  private traceSelectedWorkflowPreferences(plan: MasterPlan, traceStore: TraceStore): void {
+    const preferenceIds = plan.workflowPreferences?.selectedPreferenceIds ?? [];
+    if (preferenceIds.length > 0) {
+      traceStore.appendTyped(TRACE_EVENTS.WORKFLOW_PREFERENCES_SELECTED, {
+        preferenceIds
+      });
+    }
+    const conflicts = plan.workflowPreferences?.conflicts ?? [];
+    if (conflicts.length > 0) {
+      traceStore.appendTyped(TRACE_EVENTS.WORKFLOW_PREFERENCES_CONFLICT, {
+        kind: 'plannerConflict',
+        artifacts: [],
+        preferenceIds,
+        conflicts
+      });
+    }
   }
 
   private createAgentTaskStep(stageId: string, task: PlanTask, prompt: string, paths: ReturnType<typeof taskRuntimePaths>): WorkflowStep {

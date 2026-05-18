@@ -2,7 +2,7 @@ import * as path from 'path';
 import { ArtifactSpec, WorkflowDefinition, WorkflowStep } from '../types';
 import { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 
-const WORKFLOW_STEP_TYPES = new Set(['agent', 'readJson', 'fanout', 'join', 'toolInventory', 'planRuntime', 'planImport']);
+const WORKFLOW_STEP_TYPES = new Set(['agent', 'readJson', 'fanout', 'join', 'toolInventory', 'workflowPreferences', 'planRuntime', 'planImport']);
 
 export interface WorkflowValidationResult {
   valid: boolean;
@@ -116,12 +116,58 @@ function validateStepInput(workflow: WorkflowDefinition, step: WorkflowStep, sch
     case 'toolInventory':
       errors.push(...validateToolInventoryStep(step, input, schemaRegistry));
       break;
+    case 'workflowPreferences':
+      errors.push(...validateWorkflowPreferencesStep(step, input, schemaRegistry));
+      break;
     case 'planRuntime':
       errors.push(...validatePlanRuntimeStep(step, input, schemaRegistry));
       break;
     case 'planImport':
       errors.push(...validatePlanImportStep(step, input, schemaRegistry));
       break;
+  }
+
+  return errors;
+}
+
+function validateWorkflowPreferencesStep(
+  step: WorkflowStep,
+  input: Record<string, unknown>,
+  schemaRegistry?: WorkflowSchemaRegistry
+): string[] {
+  const errors: string[] = [];
+  if (input.overrides !== undefined) {
+    if (!Array.isArray(input.overrides)) {
+      errors.push(`workflowPreferences step ${step.id} input.overrides must be an array`);
+    } else {
+      input.overrides.forEach((override, index) => {
+        if (!override || typeof override !== 'object') {
+          errors.push(`workflowPreferences step ${step.id} input.overrides[${index}] must be object`);
+          return;
+        }
+        const record = override as Record<string, unknown>;
+        if (typeof record.id !== 'string' || record.id.trim().length === 0) {
+          errors.push(`workflowPreferences step ${step.id} input.overrides[${index}].id must be a non-empty string`);
+        }
+        if (typeof record.content !== 'string' || record.content.trim().length === 0) {
+          errors.push(`workflowPreferences step ${step.id} input.overrides[${index}].content must be a non-empty string`);
+        }
+      });
+    }
+  }
+
+  if (!step.output) {
+    errors.push(`workflowPreferences step ${step.id} output is required`);
+    return errors;
+  }
+
+  if (step.output.format !== 'json') {
+    errors.push(`workflowPreferences step ${step.id} output.format must be json`);
+  }
+  if (step.output.schema !== 'workflow-preferences@1') {
+    errors.push(`workflowPreferences step ${step.id} output.schema must be workflow-preferences@1`);
+  } else {
+    errors.push(...validateSchemaId(step.output.schema, `workflowPreferences step ${step.id} output.schema`, schemaRegistry));
   }
 
   return errors;
@@ -136,6 +182,13 @@ function validateToolInventoryStep(
   if (input.include !== undefined) {
     if (!Array.isArray(input.include) || !input.include.every(item => typeof item === 'string' && item.trim().length > 0)) {
       errors.push(`toolInventory step ${step.id} input.include must be an array of non-empty strings`);
+    }
+  }
+  if (input.workflowPreferencesArtifact !== undefined) {
+    if (typeof input.workflowPreferencesArtifact !== 'string' || input.workflowPreferencesArtifact.trim().length === 0) {
+      errors.push(`toolInventory step ${step.id} input.workflowPreferencesArtifact must be a non-empty string`);
+    } else {
+      errors.push(...validateArtifactPath(input.workflowPreferencesArtifact, `toolInventory step ${step.id} input.workflowPreferencesArtifact`));
     }
   }
 

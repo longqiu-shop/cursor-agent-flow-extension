@@ -72,6 +72,87 @@ test('validates a capability-aware master plan against the tool inventory', () =
   assert.deepEqual(result.artifact.errors, []);
 });
 
+test('validates selected workflow preference references against inventory entries', () => {
+  const validator = new PlanValidator();
+  const result = validator.validate(validPlan({
+    workflowPreferences: {
+      selectedPreferenceIds: ['pr-review-flow'],
+      interpretedRequirements: ['Split PR reviews into review, verify, synthesize, and post tasks.'],
+      conflicts: []
+    }
+  }), {
+    toolInventory: {
+      ...toolInventory,
+      tools: [
+        ...toolInventory.tools,
+        {
+          id: 'workflowPreferences.pr-review-flow',
+          source: 'workflowPreferences',
+          capabilities: ['read'],
+          title: 'PR Review Flow',
+          summary: 'Split PR reviews into multiple roles.'
+        }
+      ]
+    },
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.artifact.errors, []);
+});
+
+test('rejects selected workflow preference references missing from inventory', () => {
+  const validator = new PlanValidator();
+  const result = validator.validate(validPlan({
+    workflowPreferences: {
+      selectedPreferenceIds: ['missing-preference'],
+      interpretedRequirements: ['Use a missing preference.']
+    }
+  }), {
+    toolInventory,
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.artifact.errors.map(error => error.code), [
+    PLAN_VALIDATION_ERROR_CODES.UNKNOWN_WORKFLOW_PREFERENCE
+  ]);
+});
+
+test('rejects workflow preference inventory entries as executable task tools', () => {
+  const validator = new PlanValidator();
+  const baseTask = validPlan().stages[0].tasks[0];
+  const result = validator.validate(validPlan({
+    stages: [{
+      id: 'summarize',
+      tasks: [{
+        ...baseTask,
+        tools: ['workflowPreferences.pr-review-flow']
+      }]
+    }]
+  }), {
+    toolInventory: {
+      ...toolInventory,
+      tools: [
+        ...toolInventory.tools,
+        {
+          id: 'workflowPreferences.pr-review-flow',
+          source: 'workflowPreferences',
+          capabilities: ['read'],
+          title: 'PR Review Flow',
+          summary: 'Planning context only.'
+        }
+      ]
+    },
+    allowedCapabilities: ['read']
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.artifact.errors.map(error => error.code), [
+    PLAN_VALIDATION_ERROR_CODES.WORKFLOW_PREFERENCE_NOT_EXECUTABLE
+  ]);
+});
+
 test('returns structured validation error for unparseable planner JSON', () => {
   const validator = new PlanValidator();
   const result = validator.validateJsonContent('{not json', { toolInventory });

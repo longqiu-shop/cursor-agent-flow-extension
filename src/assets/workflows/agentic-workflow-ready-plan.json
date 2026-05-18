@@ -24,7 +24,7 @@
       "id": "inventory",
       "type": "toolInventory",
       "input": {
-        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions", "mcpTools"]
+        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions", "mcpTools", "workflowPreferences"]
       },
       "output": {
         "path": "tool-inventory.json",

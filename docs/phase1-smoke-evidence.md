@@ -2,7 +2,7 @@
 
 Phase 1 adds persisted per-task runtime artifacts, typed trace events, read-only Plan Run inspection, runtime policy hardening, and amendment-proposal blocking.
 
-Status: live Extension Host smoke is still required before this phase should be treated as release-ready.
+Status: live Extension Host smoke is still required before this phase should be treated as release-ready. The post-P2 checklist is tracked in `docs/phase2-smoke-evidence.md`.
 
 ## Automated Evidence
 

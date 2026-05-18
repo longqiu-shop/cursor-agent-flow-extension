@@ -72,3 +72,31 @@ test('deduplicates colliding command ids deterministically', () => {
   assert.equal(inventory.tools[0].id, 'commands.review');
   assert.match(inventory.tools[1].id, /^commands\.review\.[a-f0-9]{8}$/);
 });
+
+test('includes compact workflow preference inventory entries as read-only context', () => {
+  const provider = new ToolContextProvider({
+    workflowPreferences: [{
+      id: 'pr-review-flow',
+      source: 'project',
+      path: '/workspace/.cursor/agent-flow/preferences/pr-review-flow.md',
+      title: 'PR Review Flow',
+      summary: 'Review, verify, synthesize, then post only when asked.',
+      content: 'Detailed freeform preference text',
+      contentSha256: 'abc123'
+    }]
+  });
+
+  const inventory = provider.snapshot({ include: ['workflowPreferences'] });
+
+  assert.equal(inventory.tools.length, 1);
+  assert.deepEqual(inventory.tools[0], {
+    id: 'workflowPreferences.pr-review-flow',
+    source: 'workflowPreferences',
+    capabilities: ['planning'],
+    description: 'PR Review Flow: Review, verify, synthesize, then post only when asked.',
+    path: '/workspace/.cursor/agent-flow/preferences/pr-review-flow.md',
+    title: 'PR Review Flow',
+    summary: 'Review, verify, synthesize, then post only when asked.'
+  });
+  assert.equal(inventory.tools.some(tool => tool.id === 'workflow.agent'), false);
+});

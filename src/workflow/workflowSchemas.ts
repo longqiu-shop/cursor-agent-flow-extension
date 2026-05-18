@@ -19,7 +19,9 @@ import {
   validatePlanValidationArtifact,
   validateToolInventory,
   validateToolUseEvidence,
-  validateTraceEvent
+  validateTraceEvent,
+  validateWorkflowPreferences,
+  WORKFLOW_PREFERENCES_SCHEMA_ID
 } from './planSchemas';
 import { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 
@@ -33,6 +35,7 @@ export function createWorkflowSchemaRegistry(): WorkflowSchemaRegistry {
   registry.register(MEMORY_PROPOSAL_SCHEMA_ID, validateMemoryProposal);
   registry.register(OUTPUT_CONTRACT_SCHEMA_ID, validateOutputContract);
   registry.register(TOOL_USE_EVIDENCE_SCHEMA_ID, validateToolUseEvidence);
+  registry.register(WORKFLOW_PREFERENCES_SCHEMA_ID, validateWorkflowPreferences);
   registry.register(PLAN_VALIDATION_SCHEMA_ID, validatePlanValidationArtifact);
   registry.register(PLAN_RUN_SCHEMA_ID, validatePlanRun);
   registry.register(TRACE_EVENT_SCHEMA_ID, validateTraceEvent);
@@ -49,6 +52,7 @@ export {
   PLAN_VALIDATION_SCHEMA_ID,
   TOOL_INVENTORY_SCHEMA_ID,
   TOOL_USE_EVIDENCE_SCHEMA_ID,
+  WORKFLOW_PREFERENCES_SCHEMA_ID,
   TRACE_EVENT_SCHEMA_ID,
   STEP_STATUS_SCHEMA_ID,
   validateAuditArtifact,
@@ -61,5 +65,6 @@ export {
   validateStepStatusArtifact,
   validateToolInventory,
   validateToolUseEvidence,
-  validateTraceEvent
+  validateTraceEvent,
+  validateWorkflowPreferences
 };

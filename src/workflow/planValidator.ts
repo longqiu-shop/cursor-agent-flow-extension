@@ -29,7 +29,9 @@ export const PLAN_VALIDATION_ERROR_CODES = {
   AMBIGUOUS_TASK_GOAL: 'AMBIGUOUS_TASK_GOAL',
   MULTIPLE_TASK_ROLES: 'MULTIPLE_TASK_ROLES',
   MULTI_AGENT_TASK: 'MULTI_AGENT_TASK',
-  SIDE_EFFECT_REQUIRES_DEPENDENCY: 'SIDE_EFFECT_REQUIRES_DEPENDENCY'
+  SIDE_EFFECT_REQUIRES_DEPENDENCY: 'SIDE_EFFECT_REQUIRES_DEPENDENCY',
+  UNKNOWN_WORKFLOW_PREFERENCE: 'UNKNOWN_WORKFLOW_PREFERENCE',
+  WORKFLOW_PREFERENCE_NOT_EXECUTABLE: 'WORKFLOW_PREFERENCE_NOT_EXECUTABLE'
 } as const;
 
 export interface PlanValidationContext {
@@ -73,6 +75,7 @@ export class PlanValidator {
       ...this.validateInventory(context.toolInventory),
       ...this.validateAllowedCapabilities(plan, context),
       ...this.validateRiskPolicy(plan),
+      ...this.validateWorkflowPreferences(plan, context.toolInventory),
       ...this.validateTaskPolicies(plan, context)
     ];
 
@@ -130,6 +133,25 @@ export class PlanValidator {
       message: 'High-risk plans require requiresApproval: true before execution',
       path: 'requiresApproval'
     }];
+  }
+
+  private validateWorkflowPreferences(plan: MasterPlan, inventory: ToolInventory): PlanValidationError[] {
+    const selectedPreferenceIds = plan.workflowPreferences?.selectedPreferenceIds ?? [];
+    if (selectedPreferenceIds.length === 0) {
+      return [];
+    }
+
+    const knownPreferenceIds = new Set(inventory.tools
+      .filter(tool => tool.source === 'workflowPreferences')
+      .map(tool => tool.id.replace(/^workflowPreferences\./, '')));
+
+    return selectedPreferenceIds
+      .filter(preferenceId => !knownPreferenceIds.has(preferenceId))
+      .map(preferenceId => ({
+        code: PLAN_VALIDATION_ERROR_CODES.UNKNOWN_WORKFLOW_PREFERENCE,
+        message: `Plan references unknown workflow preference: ${preferenceId}`,
+        path: 'workflowPreferences.selectedPreferenceIds'
+      }));
   }
 
   private validateTaskPolicies(plan: MasterPlan, context: PlanValidationContext): PlanValidationError[] {
@@ -233,6 +255,15 @@ export class PlanValidator {
         errors.push({
           code: PLAN_VALIDATION_ERROR_CODES.UNKNOWN_TOOL,
           message: `Task references unknown tool: ${toolId}`,
+          path: `${taskPath}.tools`
+        });
+        continue;
+      }
+
+      if (tool.source === 'workflowPreferences') {
+        errors.push({
+          code: PLAN_VALIDATION_ERROR_CODES.WORKFLOW_PREFERENCE_NOT_EXECUTABLE,
+          message: `Workflow preference ${toolId} is planner context, not an executable task tool`,
           path: `${taskPath}.tools`
         });
         continue;

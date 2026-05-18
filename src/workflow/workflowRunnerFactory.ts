@@ -3,7 +3,8 @@ import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue'
 import { AgentRegistry } from '../commands/agentRegistry';
 import { CommandRegistry } from '../commands/commandRegistry';
 import { SkillRegistry } from '../commands/skillRegistry';
-import { getAdditionalMcpDirectories, getDefaultMcpDescriptorDirectory } from '../utils/fileUtils';
+import * as path from 'path';
+import { getAdditionalMcpDirectories, getAllWorkspaceFolders, getDefaultMcpDescriptorDirectory, getUserHome } from '../utils/fileUtils';
 import { AgentStepExecutor } from './agentStepExecutor';
 import { FanoutStepExecutor } from './fanoutStepExecutor';
 import { JoinStepExecutor } from './joinStepExecutor';
@@ -13,6 +14,8 @@ import { ReadJsonStepExecutor } from './readJsonStepExecutor';
 import { RunningWorkflowRegistry } from './runningWorkflowRegistry';
 import { ToolContextProvider } from './toolContextProvider';
 import { ToolInventoryStepExecutor } from './toolInventoryStepExecutor';
+import { WorkflowPreferenceProvider, WORKFLOW_PREFERENCES_DIR } from './workflowPreferenceProvider';
+import { WorkflowPreferencesStepExecutor } from './workflowPreferencesStepExecutor';
 import { WorkflowRunner } from './workflowRunner';
 import { WorkflowSchemaRegistry } from './workflowSchemaRegistry';
 
@@ -28,6 +31,7 @@ export class WorkflowRunnerFactory {
 
   createRunner(): WorkflowRunner {
     const agentRunner = new CursorAgentRunner();
+    const workflowPreferenceProvider = this.createWorkflowPreferenceProvider();
     return new WorkflowRunner(
       this.runningWorkflowRegistry,
       this.schemaRegistry,
@@ -41,11 +45,20 @@ export class WorkflowRunnerFactory {
           commandRegistry: this.commandRegistry,
           skillRegistry: this.skillRegistry,
           agentRegistry: this.agentRegistry,
-          mcpDescriptorDirectories: this.getMcpDescriptorDirectories()
+          mcpDescriptorDirectories: this.getMcpDescriptorDirectories(),
+          workflowPreferenceProvider
         })),
+        new WorkflowPreferencesStepExecutor(workflowPreferenceProvider),
         new PlanRuntimeStepExecutor(this.schemaRegistry)
       ]
     );
+  }
+
+  private createWorkflowPreferenceProvider(): WorkflowPreferenceProvider {
+    return new WorkflowPreferenceProvider({
+      projectDirectories: getAllWorkspaceFolders().map(workspace => path.join(workspace, WORKFLOW_PREFERENCES_DIR)),
+      globalDirectories: [path.join(getUserHome(), WORKFLOW_PREFERENCES_DIR)]
+    });
   }
 
   private getMcpDescriptorDirectories(): string[] {

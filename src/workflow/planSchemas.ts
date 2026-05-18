@@ -9,6 +9,7 @@ export const TOOL_INVENTORY_SCHEMA_ID = 'tool-inventory@1';
 export const MEMORY_PROPOSAL_SCHEMA_ID = 'memory-proposal@1';
 export const OUTPUT_CONTRACT_SCHEMA_ID = 'output-contract@1';
 export const TOOL_USE_EVIDENCE_SCHEMA_ID = 'tool-use-evidence@1';
+export const WORKFLOW_PREFERENCES_SCHEMA_ID = 'workflow-preferences@1';
 export const PLAN_VALIDATION_SCHEMA_ID = 'plan-validation@1';
 export const PLAN_RUN_SCHEMA_ID = 'plan-run@1';
 export const TRACE_EVENT_SCHEMA_ID = 'trace-event@1';
@@ -72,7 +73,14 @@ export interface MasterPlan {
   riskLevel: PlanRiskLevel;
   allowedCapabilities: string[];
   stages: PlanStage[];
+  workflowPreferences?: PlanWorkflowPreferences;
   requiresApproval?: boolean;
+}
+
+export interface PlanWorkflowPreferences {
+  selectedPreferenceIds: string[];
+  interpretedRequirements: string[];
+  conflicts?: string[];
 }
 
 export interface PlanValidationError {
@@ -88,13 +96,16 @@ export interface PlanValidationArtifact {
   warnings?: PlanValidationError[];
 }
 
-export type ToolInventorySource = 'skills' | 'agents' | 'commands' | 'workflowPrimitives' | 'runtimeActions' | 'mcpTools';
+export type ToolInventorySource = 'skills' | 'agents' | 'commands' | 'workflowPrimitives' | 'runtimeActions' | 'mcpTools' | 'workflowPreferences';
 
 export interface ToolInventoryEntry {
   id: string;
   source: ToolInventorySource;
   capabilities: string[];
   description?: string;
+  path?: string;
+  title?: string;
+  summary?: string;
 }
 
 export interface ToolInventory {
@@ -140,6 +151,30 @@ export interface ToolUseEvidenceArtifact {
   claimedToolsUsed: string[];
   evidence: string[];
   notes?: string;
+}
+
+export type WorkflowPreferenceSource = 'builtInDefault' | 'global' | 'project' | 'runOverride';
+
+export interface WorkflowPreferenceEntry {
+  id: string;
+  source: WorkflowPreferenceSource;
+  path?: string;
+  title: string;
+  summary: string;
+  content: string;
+  contentSha256: string;
+}
+
+export interface WorkflowPreferenceSkippedEntry {
+  path: string;
+  reason: string;
+}
+
+export interface WorkflowPreferencesArtifact {
+  schemaVersion: typeof PLAN_SCHEMA_VERSION;
+  generatedAt?: string;
+  preferences: WorkflowPreferenceEntry[];
+  skipped?: WorkflowPreferenceSkippedEntry[];
 }
 
 export interface TraceEvent {
@@ -193,6 +228,9 @@ export function validateMasterPlan(value: unknown): SchemaValidationResult<Maste
 
   if (plan.requiresApproval !== undefined && typeof plan.requiresApproval !== 'boolean') {
     errors.push(`${MASTER_PLAN_SCHEMA_ID}.requiresApproval must be boolean`);
+  }
+  if (plan.workflowPreferences !== undefined) {
+    validatePlanWorkflowPreferences(plan.workflowPreferences, `${MASTER_PLAN_SCHEMA_ID}.workflowPreferences`, errors);
   }
 
   return finish<MasterPlan>(value, errors);
@@ -297,6 +335,33 @@ export function validateToolUseEvidence(value: unknown): SchemaValidationResult<
   }
 
   return finish<ToolUseEvidenceArtifact>(value, errors);
+}
+
+export function validateWorkflowPreferences(value: unknown): SchemaValidationResult<WorkflowPreferencesArtifact> {
+  const errors: string[] = [];
+  const artifact = expectRecord(value, WORKFLOW_PREFERENCES_SCHEMA_ID, errors);
+  if (!artifact) {
+    return invalid(errors);
+  }
+
+  validateSchemaVersion(artifact, WORKFLOW_PREFERENCES_SCHEMA_ID, errors);
+  if (artifact.generatedAt !== undefined && typeof artifact.generatedAt !== 'string') {
+    errors.push(`${WORKFLOW_PREFERENCES_SCHEMA_ID}.generatedAt must be string`);
+  }
+  if (!Array.isArray(artifact.preferences)) {
+    errors.push(`${WORKFLOW_PREFERENCES_SCHEMA_ID}.preferences must be array`);
+  } else {
+    artifact.preferences.forEach((preference, index) => validateWorkflowPreferenceEntry(preference, `${WORKFLOW_PREFERENCES_SCHEMA_ID}.preferences[${index}]`, errors));
+  }
+  if (artifact.skipped !== undefined) {
+    if (!Array.isArray(artifact.skipped)) {
+      errors.push(`${WORKFLOW_PREFERENCES_SCHEMA_ID}.skipped must be array`);
+    } else {
+      artifact.skipped.forEach((skipped, index) => validateWorkflowPreferenceSkippedEntry(skipped, `${WORKFLOW_PREFERENCES_SCHEMA_ID}.skipped[${index}]`, errors));
+    }
+  }
+
+  return finish<WorkflowPreferencesArtifact>(value, errors);
 }
 
 export function validatePlanValidationArtifact(value: unknown): SchemaValidationResult<PlanValidationArtifact> {
@@ -552,12 +617,51 @@ function validateToolEntries(value: unknown, errors: string[]): void {
       return;
     }
     requireNonEmptyString(tool, 'id', `${path}.id`, errors);
-    requireEnum(tool, 'source', ['skills', 'agents', 'commands', 'workflowPrimitives', 'runtimeActions', 'mcpTools'], `${path}.source`, errors);
+    requireEnum(tool, 'source', ['skills', 'agents', 'commands', 'workflowPrimitives', 'runtimeActions', 'mcpTools', 'workflowPreferences'], `${path}.source`, errors);
     requireStringArray(tool, 'capabilities', `${path}.capabilities`, errors, true);
-    if (tool.description !== undefined && typeof tool.description !== 'string') {
-      errors.push(`${path}.description must be string`);
+    for (const property of ['description', 'path', 'title', 'summary']) {
+      if (tool[property] !== undefined && typeof tool[property] !== 'string') {
+        errors.push(`${path}.${property} must be string`);
+      }
     }
   });
+}
+
+function validatePlanWorkflowPreferences(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be object`);
+    return;
+  }
+  requireStringArray(value, 'selectedPreferenceIds', `${path}.selectedPreferenceIds`, errors, true);
+  requireStringArray(value, 'interpretedRequirements', `${path}.interpretedRequirements`, errors, true);
+  if (value.conflicts !== undefined) {
+    requireStringArray(value, 'conflicts', `${path}.conflicts`, errors, true);
+  }
+}
+
+function validateWorkflowPreferenceEntry(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be object`);
+    return;
+  }
+  requireNonEmptyString(value, 'id', `${path}.id`, errors);
+  requireEnum(value, 'source', ['builtInDefault', 'global', 'project', 'runOverride'], `${path}.source`, errors);
+  requireNonEmptyString(value, 'title', `${path}.title`, errors);
+  requireNonEmptyString(value, 'summary', `${path}.summary`, errors);
+  requireNonEmptyString(value, 'content', `${path}.content`, errors);
+  requireNonEmptyString(value, 'contentSha256', `${path}.contentSha256`, errors);
+  if (value.path !== undefined && typeof value.path !== 'string') {
+    errors.push(`${path}.path must be string`);
+  }
+}
+
+function validateWorkflowPreferenceSkippedEntry(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be object`);
+    return;
+  }
+  requireNonEmptyString(value, 'path', `${path}.path`, errors);
+  requireNonEmptyString(value, 'reason', `${path}.reason`, errors);
 }
 
 function validateMemoryProposalEntry(value: unknown, index: number, errors: string[]): void {

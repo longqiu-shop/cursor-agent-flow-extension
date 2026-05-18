@@ -32,6 +32,11 @@ test('README documents runtime-owned task artifact names', () => {
   assert.doesNotMatch(readme, /start-agentic-workflow-from-plan-document-<timestamp>/);
   assert.match(readme, /~\/\.cursor\/agent-flow-requests\//);
   assert.match(readme, /\.cursor\/agent-flow\/preferences\//);
+  assert.match(readme, /preferences\/workflow-preferences\.json/);
+  assert.match(readme, /workflowPreferences\.selectedPreferenceIds/);
+  assert.match(readme, /run override -> project -> global -> built-in default/);
+  assert.match(readme, /docs\/phase2-smoke-evidence\.md/);
+  assert.doesNotMatch(readme, /Agent Schedules view/);
 });
 
 function escapeRegExp(value: string): string {
