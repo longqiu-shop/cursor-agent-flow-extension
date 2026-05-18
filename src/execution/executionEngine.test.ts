@@ -71,6 +71,8 @@ test('extension wires agent chat request files to the agentic workflow starter',
   assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidCreate\(queueAgentChatTrigger\)/);
   assert.match(extensionSource, /globalAgentChatTriggerWatcher\.onDidChange\(queueAgentChatTrigger\)/);
   assert.match(commandSource, /async startAgenticWorkflowFromGoal\(goal: string, requestId\?: string\): Promise<string>/);
+  assert.match(commandSource, /registerCommand\('cursorAgentFlow\.startAgenticWorkflow', \(goal\?: unknown\)/);
+  assert.match(commandSource, /const goal = typeof goalArg === 'string' \? goalArg : await vscode\.window\.showInputBox/);
   assert.match(commandSource, /this\.agenticWorkflowService\.startFromGoal\(\{/);
   assert.doesNotMatch(commandSource, /runScheduleDirect\(schedule\)/);
 });

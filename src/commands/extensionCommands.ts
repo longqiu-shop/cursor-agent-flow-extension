@@ -65,7 +65,7 @@ export class ExtensionCommands {
       vscode.commands.registerCommand('cursorAgentFlow.openWorkflowRunFolder', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.openWorkflowRunFolder(item)),
       vscode.commands.registerCommand('cursorAgentFlow.cancelWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.cancelWorkflowRun(item)),
       vscode.commands.registerCommand('cursorAgentFlow.rerunWorkflowRun', (item?: WorkflowRunTreeItem | WorkflowStepTreeItem) => this.rerunWorkflowRun(item)),
-      vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflow', (goal?: string) => this.startAgenticWorkflow(goal)),
+      vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflow', (goal?: unknown) => this.startAgenticWorkflow(goal)),
       vscode.commands.registerCommand('cursorAgentFlow.startAgenticWorkflowFromPlanDocument', () => this.promptAgenticWorkflowFromPlanDocument()),
       vscode.commands.registerCommand('cursorAgentFlow.reloadCommands', () => this.reloadCommands()),
       vscode.commands.registerCommand('cursorAgentFlow.testExecution', () => this.testExecution()),
@@ -128,8 +128,8 @@ export class ExtensionCommands {
     }
   }
 
-  private async startAgenticWorkflow(goalArg?: string): Promise<void> {
-    const goal = goalArg ?? await vscode.window.showInputBox({
+  private async startAgenticWorkflow(goalArg?: unknown): Promise<void> {
+    const goal = typeof goalArg === 'string' ? goalArg : await vscode.window.showInputBox({
       prompt: 'What should the agentic workflow accomplish?',
       placeHolder: 'Example: Summarize today\'s git changes',
       ignoreFocusOut: true
