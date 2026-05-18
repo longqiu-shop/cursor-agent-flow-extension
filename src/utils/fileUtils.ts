@@ -2,12 +2,26 @@
  * File utilities for safe I/O operations and path resolution
  */
 
-import * as vscode from 'vscode';
+import type * as VscodeApi from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 
 const WORKSPACE_FALLBACK_ENV = 'AGENT_SCHEDULES_WORKSPACE';
+let cachedVscode: typeof VscodeApi | undefined | null;
+
+function getVscode(): typeof VscodeApi | undefined {
+  if (cachedVscode !== undefined) {
+    return cachedVscode ?? undefined;
+  }
+
+  try {
+    cachedVscode = module.require('vscode') as typeof VscodeApi;
+  } catch {
+    cachedVscode = null;
+  }
+  return cachedVscode ?? undefined;
+}
 
 function getWorkspaceFallback(): string | undefined {
   const fallback = process.env[WORKSPACE_FALLBACK_ENV];
@@ -21,13 +35,14 @@ function getWorkspaceFallback(): string | undefined {
  * Get the workspace folder path, or throw if none exists
  */
 export function getWorkspaceFolder(): string {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
+  const fallback = getWorkspaceFallback();
+  if (fallback) {
+    console.log(`[fileUtils] Using ${WORKSPACE_FALLBACK_ENV}=${fallback}`);
+    return fallback;
+  }
+
+  const workspaceFolders = getVscode()?.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
-    const fallback = getWorkspaceFallback();
-    if (fallback) {
-      console.log(`[fileUtils] No workspace folder open; using ${WORKSPACE_FALLBACK_ENV}=${fallback}`);
-      return fallback;
-    }
     throw new Error('No workspace folder open');
   }
   return workspaceFolders[0].uri.fsPath;
@@ -37,13 +52,14 @@ export function getWorkspaceFolder(): string {
  * Get all workspace folder paths
  */
 export function getAllWorkspaceFolders(): string[] {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
+  const fallback = getWorkspaceFallback();
+  if (fallback) {
+    console.log(`[fileUtils] Using ${WORKSPACE_FALLBACK_ENV}=${fallback}`);
+    return [fallback];
+  }
+
+  const workspaceFolders = getVscode()?.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
-    const fallback = getWorkspaceFallback();
-    if (fallback) {
-      console.log(`[fileUtils] No workspace folders open; using ${WORKSPACE_FALLBACK_ENV}=${fallback}`);
-      return [fallback];
-    }
     return [];
   }
   return workspaceFolders.map(folder => folder.uri.fsPath);
@@ -77,7 +93,10 @@ export const GLOBAL_SKILLS_DIR = '.cursor/skills-cursor';
  * Get additional command directories from configuration
  */
 export function getAdditionalCommandDirs(): string[] {
-  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
+  const config = getVscode()?.workspace.getConfiguration('cursorAgentFlow');
+  if (!config) {
+    return [];
+  }
   const additionalDirs = config.get<string[]>('additionalCommandDirectories', []);
   return additionalDirs.filter(dir => dir && dir.trim().length > 0);
 }
@@ -86,7 +105,10 @@ export function getAdditionalCommandDirs(): string[] {
  * Get additional skill directories from configuration
  */
 export function getAdditionalSkillsDirs(): string[] {
-  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
+  const config = getVscode()?.workspace.getConfiguration('cursorAgentFlow');
+  if (!config) {
+    return [];
+  }
   const additionalDirs = config.get<string[]>('additionalSkillsDirectories', []);
   return additionalDirs.filter(dir => dir && dir.trim().length > 0);
 }
@@ -95,7 +117,10 @@ export function getAdditionalSkillsDirs(): string[] {
  * Get additional agent directories from configuration
  */
 export function getAdditionalAgentsDirs(): string[] {
-  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
+  const config = getVscode()?.workspace.getConfiguration('cursorAgentFlow');
+  if (!config) {
+    return [];
+  }
   const additionalDirs = config.get<string[]>('additionalAgentsDirectories', []);
   return additionalDirs.filter(dir => dir && dir.trim().length > 0);
 }
@@ -104,7 +129,10 @@ export function getAdditionalAgentsDirs(): string[] {
  * Get additional MCP descriptor directories from configuration.
  */
 export function getAdditionalMcpDirectories(): string[] {
-  const config = vscode.workspace.getConfiguration('cursorAgentFlow');
+  const config = getVscode()?.workspace.getConfiguration('cursorAgentFlow');
+  if (!config) {
+    return [];
+  }
   const additionalDirs = config.get<string[]>('additionalMcpDirectories', []);
   return additionalDirs.filter(dir => dir && dir.trim().length > 0);
 }
