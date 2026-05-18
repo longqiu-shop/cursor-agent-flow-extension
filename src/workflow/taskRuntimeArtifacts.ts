@@ -7,6 +7,7 @@ export const TASK_RUNTIME_ARTIFACT_NAMES = {
   inputContext: 'input-context.json',
   taskPrompt: 'task-prompt.md',
   prompt: 'prompt.md',
+  submissionDebug: 'submission-debug.json',
   validation: 'validation.json',
   provenance: 'provenance.json',
   status: 'status.json',
@@ -19,6 +20,7 @@ export interface TaskRuntimePaths {
   inputContext: string;
   taskPrompt: string;
   prompt: string;
+  submissionDebug: string;
   validation: string;
   provenance: string;
   status: string;
@@ -62,6 +64,7 @@ export function taskRuntimePaths(stageId: string, taskId: string): TaskRuntimePa
     inputContext: `${dir}/${TASK_RUNTIME_ARTIFACT_NAMES.inputContext}`,
     taskPrompt: `${dir}/${TASK_RUNTIME_ARTIFACT_NAMES.taskPrompt}`,
     prompt: `${dir}/${TASK_RUNTIME_ARTIFACT_NAMES.prompt}`,
+    submissionDebug: `${dir}/${TASK_RUNTIME_ARTIFACT_NAMES.submissionDebug}`,
     validation: `${dir}/${TASK_RUNTIME_ARTIFACT_NAMES.validation}`,
     provenance: `${dir}/${TASK_RUNTIME_ARTIFACT_NAMES.provenance}`,
     status: `${dir}/${TASK_RUNTIME_ARTIFACT_NAMES.status}`,

@@ -40,10 +40,14 @@ test('validates declared outputs and allows known task artifacts', () => {
   const manager = new OutputContractManager(runDir, createWorkflowSchemaRegistry());
   writeFile(path.join(runDir, expectedMarkdown.path), '# Summary\n');
   writeFile(path.join(runDir, 'tasks/summarize/summarize-changes/input-context.json'), '{}');
+  writeFile(path.join(runDir, 'tasks/summarize/summarize-changes/submission-debug.json'), '{}');
 
   const result = manager.validateDeclaredOutputs([expectedMarkdown], {}, {
     taskArtifactDir: 'tasks/summarize/summarize-changes',
-    allowlist: ['tasks/summarize/summarize-changes/input-context.json']
+    allowlist: [
+      'tasks/summarize/summarize-changes/input-context.json',
+      'tasks/summarize/summarize-changes/submission-debug.json'
+    ]
   });
 
   assert.equal(result.valid, true);
