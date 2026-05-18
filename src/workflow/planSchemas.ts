@@ -148,7 +148,11 @@ export interface OutputContractArtifact {
 
 export interface ToolUseEvidenceArtifact {
   schemaVersion: typeof PLAN_SCHEMA_VERSION;
-  claimedToolsUsed: string[];
+  selectedTools: string[];
+  usedTools: string[];
+  attemptedTools: string[];
+  unavailableTools: string[];
+  fallbackSources: string[];
   evidence: string[];
   notes?: string;
 }
@@ -328,7 +332,11 @@ export function validateToolUseEvidence(value: unknown): SchemaValidationResult<
   }
 
   validateSchemaVersion(artifact, TOOL_USE_EVIDENCE_SCHEMA_ID, errors);
-  requireStringArray(artifact, 'claimedToolsUsed', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.claimedToolsUsed`, errors);
+  requireStringArray(artifact, 'selectedTools', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.selectedTools`, errors);
+  requireStringArray(artifact, 'usedTools', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.usedTools`, errors, true);
+  requireStringArray(artifact, 'attemptedTools', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.attemptedTools`, errors, true);
+  requireStringArray(artifact, 'unavailableTools', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.unavailableTools`, errors, true);
+  requireStringArray(artifact, 'fallbackSources', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.fallbackSources`, errors, true);
   requireStringArray(artifact, 'evidence', `${TOOL_USE_EVIDENCE_SCHEMA_ID}.evidence`, errors);
   if (artifact.notes !== undefined && typeof artifact.notes !== 'string') {
     errors.push(`${TOOL_USE_EVIDENCE_SCHEMA_ID}.notes must be string`);

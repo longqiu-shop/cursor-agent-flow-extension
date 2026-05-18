@@ -249,7 +249,11 @@ test('validates MCP tool-use evidence artifacts', () => {
   const registry = createWorkflowSchemaRegistry();
   const result = registry.validate(TOOL_USE_EVIDENCE_SCHEMA_ID, {
     schemaVersion: '1',
-    claimedToolsUsed: ['mcp.user-github.list_pull_requests'],
+    selectedTools: ['mcp.user-github.list_pull_requests'],
+    usedTools: ['mcp.user-github.list_pull_requests'],
+    attemptedTools: [],
+    unavailableTools: [],
+    fallbackSources: [],
     evidence: ['Queried open pull requests for owner/repo and summarized result URLs.']
   });
 

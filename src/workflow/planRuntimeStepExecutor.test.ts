@@ -372,8 +372,48 @@ test('planRuntime advances when selected MCP tools have valid tool-use evidence'
     onChildStep: (_step, store) => {
       store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
         schemaVersion: '1',
-        claimedToolsUsed: ['mcp.user-github.list_pull_requests'],
+        selectedTools: ['mcp.user-github.list_pull_requests'],
+        usedTools: ['mcp.user-github.list_pull_requests'],
+        attemptedTools: [],
+        unavailableTools: [],
+        fallbackSources: [],
         evidence: ['Listed pull requests and used the result IDs in the summary.']
+      });
+    }
+  });
+  const executor = new PlanRuntimeStepExecutor(schemaRegistry);
+
+  const result = await executor.execute(planRuntimeStep, {
+    stepRunId: 'execute-plan',
+    definitionId: 'execute-plan',
+    type: 'planRuntime',
+    status: 'running'
+  }, context);
+  const planRun = artifactStore.readJson<PlanRun>('plan-run.json');
+  const audit = artifactStore.readJson<{ missingEvidence: string[]; risks: string[] }>('audits/summarize/summarize-changes/audit.json');
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(planRun?.status, 'succeeded');
+  assert.deepEqual(audit?.missingEvidence, []);
+  assert.deepEqual(audit?.risks, []);
+});
+
+test('planRuntime advances when selected MCP tools are attempted with fallback evidence', async () => {
+  const runDir = tempRunDir();
+  const schemaRegistry = createWorkflowSchemaRegistry();
+  const artifactStore = createArtifactStore(runDir);
+  writeBaseRuntimeInputs(artifactStore, planWithMcpTool(), toolInventoryWithMcp);
+  const childCalls: WorkflowStep[] = [];
+  const context = createContext(runDir, childCalls, {
+    onChildStep: (_step, store) => {
+      store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
+        schemaVersion: '1',
+        selectedTools: ['mcp.user-github.list_pull_requests'],
+        usedTools: [],
+        attemptedTools: ['mcp.user-github.list_pull_requests'],
+        unavailableTools: ['mcp.user-github.list_pull_requests'],
+        fallbackSources: ['local git fetch', 'ReadFile'],
+        evidence: ['GitHub MCP was unavailable; reviewed the PR from a local checkout instead.']
       });
     }
   });
@@ -411,30 +451,83 @@ test('planRuntime blocks malformed MCP tool-use evidence variants', async () => 
       name: 'schema-invalid JSON',
       writeEvidence: store => store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
         schemaVersion: '1',
-        claimedToolsUsed: 'mcp.user-github.list_pull_requests',
+        selectedTools: [],
+        usedTools: 'mcp.user-github.list_pull_requests',
+        attemptedTools: [],
+        unavailableTools: [],
+        fallbackSources: [],
         evidence: []
       }),
       missingEvidence: ['MCP tool-use evidence does not match tool-use-evidence@1: tasks/summarize/summarize-changes/tool-use-evidence.json'],
-      risks: [/claimedToolsUsed must be a non-empty array/, /evidence must be a non-empty array/]
+      risks: [/selectedTools must be a non-empty array/, /usedTools must be an array/, /evidence must be a non-empty array/]
     },
     {
-      name: 'missing selected tool claim',
+      name: 'missing selected tool accounting',
       writeEvidence: store => store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
         schemaVersion: '1',
-        claimedToolsUsed: ['mcp.user-github.get_issue'],
+        selectedTools: ['mcp.user-github.get_issue'],
+        usedTools: ['mcp.user-github.list_pull_requests'],
+        attemptedTools: [],
+        unavailableTools: [],
+        fallbackSources: [],
         evidence: ['Looked at PRs but did not claim the selected MCP tool.']
       }),
-      missingEvidence: ['MCP tool-use evidence did not claim selected tool: mcp.user-github.list_pull_requests']
+      missingEvidence: ['MCP tool-use evidence did not include selected tool: mcp.user-github.list_pull_requests'],
+      risks: [/included undeclared selected tool: mcp\.user-github\.get_issue/]
     },
     {
-      name: 'undeclared tool claim',
+      name: 'unaccounted selected tool',
       writeEvidence: store => store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
         schemaVersion: '1',
-        claimedToolsUsed: ['mcp.user-github.list_pull_requests', 'mcp.user-slack.search'],
+        selectedTools: ['mcp.user-github.list_pull_requests'],
+        usedTools: [],
+        attemptedTools: [],
+        unavailableTools: [],
+        fallbackSources: ['local git fetch'],
+        evidence: ['Used local git but did not record what happened to the selected MCP tool.']
+      }),
+      missingEvidence: ['MCP tool-use evidence did not account for selected tool: mcp.user-github.list_pull_requests']
+    },
+    {
+      name: 'missing fallback source',
+      writeEvidence: store => store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
+        schemaVersion: '1',
+        selectedTools: ['mcp.user-github.list_pull_requests'],
+        usedTools: [],
+        attemptedTools: ['mcp.user-github.list_pull_requests'],
+        unavailableTools: [],
+        fallbackSources: [],
+        evidence: ['Tried the selected MCP tool and used another source, but did not name it.']
+      }),
+      missingEvidence: ['MCP fallback sources were not provided for selected tools that were not used']
+    },
+    {
+      name: 'undeclared tool activity',
+      writeEvidence: store => store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
+        schemaVersion: '1',
+        selectedTools: ['mcp.user-github.list_pull_requests'],
+        usedTools: ['mcp.user-github.list_pull_requests', 'mcp.user-slack.search'],
+        attemptedTools: [],
+        unavailableTools: [],
+        fallbackSources: [],
         evidence: ['Used an undeclared Slack search while summarizing GitHub data.']
       }),
       missingEvidence: [],
-      risks: [/claimed undeclared tool: mcp\.user-slack\.search/]
+      risks: [/reported activity for undeclared tool: mcp\.user-slack\.search/]
+    },
+    {
+      name: 'unavailable without attempt',
+      writeEvidence: store => store.writeJson('tasks/summarize/summarize-changes/tool-use-evidence.json', {
+        schemaVersion: '1',
+        selectedTools: ['mcp.user-github.list_pull_requests'],
+        usedTools: [],
+        attemptedTools: [],
+        unavailableTools: ['mcp.user-github.list_pull_requests'],
+        fallbackSources: ['local git fetch'],
+        evidence: ['Marked the selected MCP tool unavailable without recording an attempt.']
+      }),
+      missingEvidence: [],
+      risks: [/marked unavailable without attempted use: mcp\.user-github\.list_pull_requests/]
     }
   ];
 
