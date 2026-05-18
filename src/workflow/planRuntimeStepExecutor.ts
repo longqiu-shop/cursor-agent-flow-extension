@@ -784,8 +784,12 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
         `If you use or attempt to use these MCP tools, write JSON evidence to ${path.join(context.run.runDir, mcpEvidencePath)} with this shape:`,
         JSON.stringify({
           schemaVersion: PLAN_SCHEMA_VERSION,
-          claimedToolsUsed: selectedMcpToolIds,
-          evidence: ['Briefly describe the MCP calls, inputs, result IDs, URLs, or observations used to support the output.'],
+          selectedTools: selectedMcpToolIds,
+          usedTools: [],
+          attemptedTools: selectedMcpToolIds,
+          unavailableTools: [],
+          fallbackSources: [],
+          evidence: ['Briefly describe MCP calls, attempted calls, result IDs, URLs, fallback sources, or observations used to support the output.'],
           notes: 'Optional caveats or failures.'
         }, null, 2)
       );
@@ -1096,15 +1100,37 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
     }
 
     const evidence = validation.value as ToolUseEvidenceArtifact;
-    const claimedTools = new Set(evidence.claimedToolsUsed);
-    const missingTools = selectedMcpToolIds.filter(toolId => !claimedTools.has(toolId));
-    const undeclaredTools = evidence.claimedToolsUsed.filter(toolId => !selectedMcpToolIds.includes(toolId));
+    const selectedTools = new Set(selectedMcpToolIds);
+    const evidenceSelectedTools = new Set(evidence.selectedTools);
+    const accountedTools = new Set([
+      ...evidence.usedTools,
+      ...evidence.attemptedTools,
+      ...evidence.unavailableTools
+    ]);
+    const activityTools = Array.from(accountedTools);
+    const missingSelectedTools = selectedMcpToolIds.filter(toolId => !evidenceSelectedTools.has(toolId));
+    const undeclaredSelectedTools = evidence.selectedTools.filter(toolId => !selectedTools.has(toolId));
+    const unaccountedTools = selectedMcpToolIds.filter(toolId => !accountedTools.has(toolId));
+    const undeclaredActivityTools = activityTools.filter(toolId => !selectedTools.has(toolId));
+    const unavailableWithoutAttempt = evidence.unavailableTools.filter(toolId => !evidence.attemptedTools.includes(toolId));
+    const fallbackRequired = selectedMcpToolIds.some(toolId => !evidence.usedTools.includes(toolId));
+    const missingFallbackSources = fallbackRequired && evidence.fallbackSources.length === 0
+      ? ['MCP fallback sources were not provided for selected tools that were not used']
+      : [];
 
     return {
       path: evidencePath,
       checkedArtifacts: [evidencePath],
-      missingEvidence: missingTools.map(toolId => `MCP tool-use evidence did not claim selected tool: ${toolId}`),
-      risks: undeclaredTools.map(toolId => `MCP tool-use evidence claimed undeclared tool: ${toolId}`)
+      missingEvidence: [
+        ...missingSelectedTools.map(toolId => `MCP tool-use evidence did not include selected tool: ${toolId}`),
+        ...unaccountedTools.map(toolId => `MCP tool-use evidence did not account for selected tool: ${toolId}`),
+        ...missingFallbackSources
+      ],
+      risks: [
+        ...undeclaredSelectedTools.map(toolId => `MCP tool-use evidence included undeclared selected tool: ${toolId}`),
+        ...undeclaredActivityTools.map(toolId => `MCP tool-use evidence reported activity for undeclared tool: ${toolId}`),
+        ...unavailableWithoutAttempt.map(toolId => `MCP tool-use evidence marked unavailable without attempted use: ${toolId}`)
+      ]
     };
   }
 
