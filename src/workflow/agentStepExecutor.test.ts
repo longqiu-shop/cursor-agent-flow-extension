@@ -105,8 +105,10 @@ function createContext(runDir: string, waitResult: ArtifactWaitResult<unknown>):
 function createControlledWaitContext(runDir: string): {
   context: WorkflowExecutionContext;
   resolveOutput: (value?: unknown) => void;
+  resolveStatus: (status?: 'blocked' | 'failed', reason?: string) => void;
 } {
   const outputWait = deferred<ArtifactWaitResult<unknown>>();
+  const statusWait = deferred<ArtifactWaitResult<unknown>>();
   const artifactStore = {
     resolveArtifactPath: (artifactPath: string) => path.join(runDir, artifactPath),
     writeText: (artifactPath: string, value: string) => {
@@ -117,7 +119,7 @@ function createControlledWaitContext(runDir: string): {
     },
     waitForArtifact: async <T>(spec: ArtifactSpec): Promise<ArtifactWaitResult<T>> => {
       if (spec.path.includes('status')) {
-        return new Promise<ArtifactWaitResult<T>>(() => undefined);
+        return statusWait.promise as Promise<ArtifactWaitResult<T>>;
       }
       return outputWait.promise as Promise<ArtifactWaitResult<T>>;
     }
@@ -160,6 +162,16 @@ function createControlledWaitContext(runDir: string): {
       status: 'found',
       artifactPath: path.join(runDir, 'output.md'),
       value,
+      elapsedMs: 0
+    }),
+    resolveStatus: (status: 'blocked' | 'failed' = 'blocked', reason = 'needs input') => statusWait.resolve({
+      status: 'found',
+      artifactPath: path.join(runDir, 'status.json'),
+      value: {
+        schemaVersion: '1',
+        status,
+        reason
+      },
       elapsedMs: 0
     })
   };
@@ -328,6 +340,137 @@ test('agent submission queue holds later prompts until earlier agent artifacts r
 
   secondWait.resolveOutput();
   assert.equal((await secondResult).status, 'succeeded');
+});
+
+test('agent submission queue releases later workflow prompt after earlier agent status artifact resolves', async () => {
+  const firstRunDir = tempRunDir();
+  const secondRunDir = tempRunDir();
+  const firstWait = createControlledWaitContext(firstRunDir);
+  const secondWait = createControlledWaitContext(secondRunDir);
+  const submissions: string[] = [];
+  const executor = new AgentStepExecutor({
+    submitPrompt: async (_prompt: string, options?: AgentSubmitOptions): Promise<AgentSubmitResult> => {
+      submissions.push(options?.title ?? '<untitled>');
+      return {
+        success: true,
+        output: 'submitted'
+      };
+    }
+  }, new CursorAgentSubmissionQueue());
+
+  const firstResult = executor.execute({
+    ...step,
+    id: 'workflow-a-agent',
+    input: {
+      title: 'workflow A current agent',
+      prompt: 'Run workflow A current task.'
+    },
+    output: {
+      path: 'workflow-a-output.md',
+      format: 'markdown'
+    }
+  }, {
+    stepRunId: 'workflow-a.current',
+    definitionId: 'workflow-a-agent',
+    type: 'agent',
+    status: 'running'
+  }, firstWait.context);
+  await waitUntil(() => submissions.length === 1);
+
+  const secondResult = executor.execute({
+    ...step,
+    id: 'workflow-b-agent',
+    input: {
+      title: 'workflow B agent',
+      prompt: 'Run workflow B task.'
+    },
+    output: {
+      path: 'workflow-b-output.md',
+      format: 'markdown'
+    }
+  }, {
+    stepRunId: 'workflow-b.current',
+    definitionId: 'workflow-b-agent',
+    type: 'agent',
+    status: 'running'
+  }, secondWait.context);
+  await settleMicrotasks();
+
+  assert.deepEqual(submissions, ['workflow A current agent']);
+
+  firstWait.resolveStatus('blocked', 'waiting for human input');
+  const firstStepResult = await firstResult;
+  assert.equal(firstStepResult.status, 'blocked');
+  assert.equal(firstStepResult.blockedReason, 'waiting for human input');
+  await waitUntil(() => submissions.length === 2);
+  assert.deepEqual(submissions, ['workflow A current agent', 'workflow B agent']);
+
+  secondWait.resolveOutput();
+  assert.equal((await secondResult).status, 'succeeded');
+});
+
+test('agent submission queue serializes current agent task only, not an entire workflow run', async () => {
+  const workflowARunDir = tempRunDir();
+  const workflowBRunDir = tempRunDir();
+  const firstAWait = createControlledWaitContext(workflowARunDir);
+  const workflowBWait = createControlledWaitContext(workflowBRunDir);
+  const secondAWait = createControlledWaitContext(workflowARunDir);
+  const submissions: string[] = [];
+  const executor = new AgentStepExecutor({
+    submitPrompt: async (_prompt: string, options?: AgentSubmitOptions): Promise<AgentSubmitResult> => {
+      submissions.push(options?.title ?? '<untitled>');
+      return {
+        success: true,
+        output: 'submitted'
+      };
+    }
+  }, new CursorAgentSubmissionQueue());
+
+  const runAgentStep = (
+    title: string,
+    context: WorkflowExecutionContext,
+    stepRunId: string
+  ): Promise<ReturnType<AgentStepExecutor['execute']> extends Promise<infer T> ? T : never> => executor.execute({
+    ...step,
+    id: stepRunId,
+    input: {
+      title,
+      prompt: `Run ${title}.`
+    },
+    output: {
+      path: `${stepRunId}.md`,
+      format: 'markdown'
+    }
+  }, {
+    stepRunId,
+    definitionId: stepRunId,
+    type: 'agent',
+    status: 'running'
+  }, context);
+
+  const workflowAFirst = runAgentStep('workflow A first agent', firstAWait.context, 'workflow-a-first');
+  await waitUntil(() => submissions.length === 1);
+
+  const workflowB = runAgentStep('workflow B agent', workflowBWait.context, 'workflow-b');
+  await settleMicrotasks();
+  assert.deepEqual(submissions, ['workflow A first agent']);
+
+  firstAWait.resolveOutput();
+  assert.equal((await workflowAFirst).status, 'succeeded');
+  await waitUntil(() => submissions.length === 2);
+  assert.deepEqual(submissions, ['workflow A first agent', 'workflow B agent']);
+
+  const workflowASecond = runAgentStep('workflow A second agent', secondAWait.context, 'workflow-a-second');
+  await settleMicrotasks();
+  assert.deepEqual(submissions, ['workflow A first agent', 'workflow B agent']);
+
+  workflowBWait.resolveOutput();
+  assert.equal((await workflowB).status, 'succeeded');
+  await waitUntil(() => submissions.length === 3);
+  assert.deepEqual(submissions, ['workflow A first agent', 'workflow B agent', 'workflow A second agent']);
+
+  secondAWait.resolveOutput();
+  assert.equal((await workflowASecond).status, 'succeeded');
 });
 
 test('agent step persists exact final submitted prompt when requested', async () => {
