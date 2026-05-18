@@ -411,6 +411,7 @@ export class PlanRuntimeStepExecutor implements WorkflowStepExecutor {
         paths.inputContext,
         paths.taskPrompt,
         paths.prompt,
+        paths.submissionDebug,
         paths.validation,
         paths.provenance,
         paths.memoryProposals,
