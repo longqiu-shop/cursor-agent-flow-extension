@@ -8,6 +8,7 @@ import { StorageManager } from '../storage/storageManager';
 import { SchedulerService } from '../scheduler/schedulerService';
 import { RunningWorkflowRegistry } from '../workflow/runningWorkflowRegistry';
 import {
+  getWorkflowRunDisplayName,
   isCancellableWorkflowStatus,
   isRerunnableWorkflowRun,
   orderWorkflowRunsForTree
@@ -91,7 +92,7 @@ export class WorkflowRunTreeItem extends vscode.TreeItem {
     public readonly workflowRun: WorkflowRun,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState
   ) {
-    super(workflowRun.workflowName, collapsibleState);
+    super(getWorkflowRunDisplayName(workflowRun), collapsibleState);
 
     this.description = getWorkflowRunDescription(workflowRun);
     this.tooltip = getWorkflowRunTooltip(workflowRun);
@@ -185,6 +186,9 @@ export class ScheduleTreeView implements vscode.TreeDataProvider<ScheduleTreeEle
 
 function getWorkflowRunDescription(run: WorkflowRun): string {
   const parts: string[] = [run.status];
+  if (getWorkflowRunDisplayName(run) !== run.workflowName) {
+    parts.push(run.workflowName);
+  }
   if (run.currentStepId) {
     parts.push(`step: ${run.currentStepId}`);
   }

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { WorkflowRun } from '../types';
-import { saveWorkflowRunAtomic } from './workflowRunStore';
+import { loadWorkflowRuns, saveWorkflowRunAtomic } from './workflowRunStore';
 
 const ACTIVE_STATUSES = new Set(['pending', 'running', 'blocked', 'timedOut', 'interrupted']);
 
@@ -8,6 +8,12 @@ export class RunningWorkflowRegistry implements vscode.Disposable {
   private runs = new Map<string, WorkflowRun>();
   private onDidChangeEmitter = new vscode.EventEmitter<void>();
   public readonly onDidChange = this.onDidChangeEmitter.event;
+
+  constructor(initialRuns = loadPersistedWorkflowRuns()) {
+    for (const run of initialRuns) {
+      this.runs.set(run.id, run);
+    }
+  }
 
   add(run: WorkflowRun): void {
     this.runs.set(run.id, run);
@@ -75,5 +81,14 @@ export class RunningWorkflowRegistry implements vscode.Disposable {
 
   dispose(): void {
     this.onDidChangeEmitter.dispose();
+  }
+}
+
+function loadPersistedWorkflowRuns(): WorkflowRun[] {
+  try {
+    return loadWorkflowRuns();
+  } catch (error) {
+    console.error('Failed to load persisted workflow runs:', error);
+    return [];
   }
 }

@@ -17,6 +17,7 @@ import { ScheduleEditorWebview } from '../ui/scheduleEditorWebview';
 import { RunHistoryView } from '../ui/runHistoryView';
 import { WorkflowRunDetailsView } from '../ui/workflowRunDetailsView';
 import {
+  getWorkflowRunDisplayName,
   getWorkflowRunRerunGoal,
   orderWorkflowRunsForTree
 } from '../ui/workflowRunVisibility';
@@ -386,8 +387,8 @@ export class ExtensionCommands {
     }
 
     const selected = await vscode.window.showQuickPick(runs.map(run => ({
-      label: run.workflowName,
-      description: run.status,
+      label: getWorkflowRunDisplayName(run),
+      description: `${run.status} • ${run.workflowName}`,
       detail: `${new Date(run.startedAt).toLocaleString()} • ${run.id}`,
       run
     })), { placeHolder });

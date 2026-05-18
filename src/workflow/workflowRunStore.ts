@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { WorkflowRun } from '../types';
-import { fileExists, readJsonFile, resolveWorkspacePath, writeJsonFileAtomic } from '../utils/fileUtils';
+import { fileExists, listSubdirectories, readJsonFile, resolveWorkspacePath, writeJsonFileAtomic } from '../utils/fileUtils';
 
 const WORKFLOW_RUNS_DIR = '.cursor/agent-runs';
 const WORKFLOW_RUN_STATE_FILE = 'workflow-run.json';
@@ -27,4 +27,18 @@ export function loadWorkflowRun(runDir: string): WorkflowRun | undefined {
     return undefined;
   }
   return readJsonFile<WorkflowRun>(statePath);
+}
+
+export function loadWorkflowRuns(): WorkflowRun[] {
+  const runsDir = resolveWorkspacePath(WORKFLOW_RUNS_DIR);
+  const runs: WorkflowRun[] = [];
+
+  for (const runId of listSubdirectories(runsDir)) {
+    const run = loadWorkflowRun(path.join(runsDir, runId));
+    if (run) {
+      runs.push(run);
+    }
+  }
+
+  return runs;
 }

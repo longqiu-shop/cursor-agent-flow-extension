@@ -1,6 +1,7 @@
 import { WorkflowRun, WorkflowStatus } from '../types';
 
 export const MAX_WORKFLOW_RUNS_IN_TREE = 50;
+const MAX_WORKFLOW_RUN_LABEL_LENGTH = 80;
 
 const ACTIVE_WORKFLOW_STATUSES = new Set<WorkflowStatus>([
   'pending',
@@ -31,6 +32,20 @@ export function getWorkflowRunRerunGoal(run: WorkflowRun): string | undefined {
   return goal && goal.length > 0 ? goal : undefined;
 }
 
+export function getWorkflowRunDisplayName(run: WorkflowRun): string {
+  const goal = normalizeDisplayText(run.trigger?.goal);
+  if (goal) {
+    return truncateDisplayText(goal, MAX_WORKFLOW_RUN_LABEL_LENGTH);
+  }
+
+  const requestId = normalizeDisplayText(run.trigger?.requestId);
+  if (requestId) {
+    return `${run.workflowName} (${truncateDisplayText(requestId, 32)})`;
+  }
+
+  return run.workflowName;
+}
+
 export function isRerunnableWorkflowRun(run: WorkflowRun): boolean {
   return !isCancellableWorkflowStatus(run.status) && Boolean(getWorkflowRunRerunGoal(run));
 }
@@ -47,4 +62,16 @@ export function orderWorkflowRunsForTree(
   const activeRuns = sorted.filter(run => isActiveWorkflowStatus(run.status));
   const terminalRuns = sorted.filter(run => !isActiveWorkflowStatus(run.status));
   return [...activeRuns, ...terminalRuns].slice(0, limit);
+}
+
+function normalizeDisplayText(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function truncateDisplayText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WorkflowRun, WorkflowStatus } from '../types';
 import {
+  getWorkflowRunDisplayName,
   getWorkflowRunRerunGoal,
   isRerunnableWorkflowRun,
   orderWorkflowRunsForTree
@@ -52,4 +53,21 @@ test('reruns only non-cancellable workflow runs with a persisted trigger goal', 
   assert.equal(isRerunnableWorkflowRun(workflowRun('failed', 'failed', '2026-05-16T01:00:00.000Z')), false);
   assert.equal(isRerunnableWorkflowRun(workflowRun('failed', 'failed', '2026-05-16T01:00:00.000Z', ' Do work ')), true);
   assert.equal(getWorkflowRunRerunGoal(workflowRun('failed', 'failed', '2026-05-16T01:00:00.000Z', ' Do work ')), 'Do work');
+});
+
+test('uses trigger goal as workflow run display name', () => {
+  const run = workflowRun('Agentic Workflow Bootstrap', 'running', '2026-05-16T01:00:00.000Z', '  Fix the duplicate workflow labels\nand restore history  ');
+
+  assert.equal(getWorkflowRunDisplayName(run), 'Fix the duplicate workflow labels and restore history');
+});
+
+test('falls back to workflow name and request id when no goal is available', () => {
+  const run = workflowRun('Agentic Workflow Bootstrap', 'running', '2026-05-16T01:00:00.000Z');
+  run.workflowName = 'Agentic Workflow Bootstrap';
+  run.trigger = { requestId: 'start-agentic-workflow-20260517000000' };
+
+  assert.equal(
+    getWorkflowRunDisplayName(run),
+    'Agentic Workflow Bootstrap (start-agentic-workflow-202605...)'
+  );
 });
