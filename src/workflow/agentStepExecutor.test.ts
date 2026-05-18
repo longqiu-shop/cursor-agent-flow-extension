@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { AgentStepExecutor } from './agentStepExecutor';
 import type { AgentSubmitOptions, AgentSubmitResult } from '../agent/cursorAgentRunner';
+import { CursorAgentSubmissionQueue } from '../agent/cursorAgentSubmissionQueue';
 import type { ArtifactSpec, WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowStepRun } from '../types';
 import type { ArtifactStore, ArtifactWaitResult } from './artifactStore';
 import type { WorkflowExecutionContext } from './workflowRunner';
@@ -19,6 +20,34 @@ function readEvents(runDir: string): TraceEvent[] {
     .trim()
     .split(/\r?\n/)
     .map(line => JSON.parse(line) as TraceEvent);
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function settleMicrotasks(): Promise<void> {
+  await new Promise(resolve => setImmediate(resolve));
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 200): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
+    }
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
 }
 
 function createContext(runDir: string, waitResult: ArtifactWaitResult<unknown>): WorkflowExecutionContext {
@@ -70,6 +99,69 @@ function createContext(runDir: string, waitResult: ArtifactWaitResult<unknown>):
     executeChildStep: async () => {
       throw new Error('not used');
     }
+  };
+}
+
+function createControlledWaitContext(runDir: string): {
+  context: WorkflowExecutionContext;
+  resolveOutput: (value?: unknown) => void;
+} {
+  const outputWait = deferred<ArtifactWaitResult<unknown>>();
+  const artifactStore = {
+    resolveArtifactPath: (artifactPath: string) => path.join(runDir, artifactPath),
+    writeText: (artifactPath: string, value: string) => {
+      const resolved = path.join(runDir, artifactPath);
+      fs.mkdirSync(path.dirname(resolved), { recursive: true });
+      fs.writeFileSync(resolved, value, 'utf-8');
+      return resolved;
+    },
+    waitForArtifact: async <T>(spec: ArtifactSpec): Promise<ArtifactWaitResult<T>> => {
+      if (spec.path.includes('status')) {
+        return new Promise<ArtifactWaitResult<T>>(() => undefined);
+      }
+      return outputWait.promise as Promise<ArtifactWaitResult<T>>;
+    }
+  } as unknown as ArtifactStore;
+
+  const context: WorkflowExecutionContext = {
+    workflow: {
+      id: 'agent-workflow',
+      name: 'Agent Workflow',
+      filePath: path.join(runDir, 'workflow.json'),
+      version: 1,
+      defaults: {
+        timeoutSeconds: 30
+      },
+      steps: []
+    } satisfies WorkflowDefinition,
+    run: {
+      id: path.basename(runDir),
+      workflowId: 'agent-workflow',
+      workflowName: 'Agent Workflow',
+      status: 'running',
+      runDir,
+      startedAt: '2026-05-16T00:00:00.000Z',
+      steps: []
+    } satisfies WorkflowRun,
+    artifactStore,
+    variables: {},
+    token: {
+      isCancellationRequested: false,
+      onCancellationRequested: () => ({ dispose: () => undefined })
+    } as WorkflowExecutionContext['token'],
+    executeChildStep: async () => {
+      throw new Error('not used');
+    }
+  };
+
+  return {
+    context,
+    resolveOutput: (value: unknown = '# Done\n') => outputWait.resolve({
+      status: 'found',
+      artifactPath: path.join(runDir, 'output.md'),
+      value,
+      elapsedMs: 0
+    })
   };
 }
 
@@ -170,12 +262,82 @@ test('agent step persists submission lifecycle checkpoints and command telemetry
   ]);
 });
 
+test('agent submission queue holds later prompts until earlier agent artifacts resolve', async () => {
+  const firstRunDir = tempRunDir();
+  const secondRunDir = tempRunDir();
+  const firstWait = createControlledWaitContext(firstRunDir);
+  const secondWait = createControlledWaitContext(secondRunDir);
+  const submissions: string[] = [];
+  const runner = {
+    submitPrompt: async (_prompt: string, options?: AgentSubmitOptions): Promise<AgentSubmitResult> => {
+      submissions.push(options?.title ?? '<untitled>');
+      return {
+        success: true,
+        output: 'submitted'
+      };
+    }
+  };
+  const executor = new AgentStepExecutor(runner, new CursorAgentSubmissionQueue());
+  const firstStep: WorkflowStep = {
+    ...step,
+    id: 'first-agent',
+    input: {
+      title: 'first agent',
+      prompt: 'Run first agent task.'
+    },
+    output: {
+      path: 'first-output.md',
+      format: 'markdown'
+    }
+  };
+  const secondStep: WorkflowStep = {
+    ...step,
+    id: 'second-agent',
+    input: {
+      title: 'second agent',
+      prompt: 'Run second agent task.'
+    },
+    output: {
+      path: 'second-output.md',
+      format: 'markdown'
+    }
+  };
+
+  const firstResult = executor.execute(firstStep, {
+    stepRunId: 'first-agent',
+    definitionId: 'first-agent',
+    type: 'agent',
+    status: 'running'
+  }, firstWait.context);
+  await waitUntil(() => submissions.length === 1);
+
+  const secondResult = executor.execute(secondStep, {
+    stepRunId: 'second-agent',
+    definitionId: 'second-agent',
+    type: 'agent',
+    status: 'running'
+  }, secondWait.context);
+  await settleMicrotasks();
+
+  assert.deepEqual(submissions, ['first agent']);
+
+  firstWait.resolveOutput();
+  assert.equal((await firstResult).status, 'succeeded');
+  await waitUntil(() => submissions.length === 2);
+  assert.deepEqual(submissions, ['first agent', 'second agent']);
+
+  secondWait.resolveOutput();
+  assert.equal((await secondResult).status, 'succeeded');
+});
+
 test('agent step persists exact final submitted prompt when requested', async () => {
   const runDir = tempRunDir();
   let submittedPrompt = '';
+  let submittedOptions: AgentSubmitOptions | undefined;
   const runner = {
-    submitPrompt: async (prompt: string): Promise<AgentSubmitResult> => {
+    submitPrompt: async (prompt: string, options?: AgentSubmitOptions): Promise<AgentSubmitResult> => {
       submittedPrompt = prompt;
+      submittedOptions = options;
       return {
         success: true,
         output: 'submitted'
@@ -215,12 +377,34 @@ test('agent step persists exact final submitted prompt when requested', async ()
   }));
 
   const persistedPrompt = fs.readFileSync(path.join(runDir, 'tasks/execute/complete-goal/prompt.md'), 'utf-8');
+  const submissionDebug = JSON.parse(
+    fs.readFileSync(path.join(runDir, 'tasks/execute/complete-goal/submission-debug.json'), 'utf-8')
+  ) as {
+    submissionId: string;
+    checkpoint: string;
+    promptSha256: string;
+    promptArtifact: string;
+    expectedArtifact: string;
+    statusArtifact: string;
+    correlationMarker: string;
+    resultStatus: string;
+  };
   const events = readEvents(runDir);
   assert.equal(result.status, 'succeeded');
   assert.equal(persistedPrompt, submittedPrompt);
+  assert.equal(submittedOptions?.correlationId, submissionDebug.submissionId);
   assert.match(persistedPrompt, /Complete the goal\./);
+  assert.match(persistedPrompt, /Workflow agent correlation:/);
+  assert.match(persistedPrompt, new RegExp(`Submission ID: ${submissionDebug.submissionId}`));
   assert.match(persistedPrompt, /Workflow step output contract:/);
+  assert.equal(submissionDebug.checkpoint, 'artifactFound');
+  assert.equal(submissionDebug.promptArtifact, 'tasks/execute/complete-goal/prompt.md');
+  assert.equal(submissionDebug.expectedArtifact, 'tasks/execute/complete-goal/output.md');
+  assert.equal(submissionDebug.statusArtifact, 'status/planRuntime.execute.complete-goal.json');
+  assert.equal(submissionDebug.resultStatus, 'succeeded');
+  assert.match(submissionDebug.correlationMarker, /Step Run ID: planRuntime\.execute\.complete-goal/);
   assert.equal(events.some(event => event.type === 'agent.prompted'), true);
+  assert.equal(events.some(event => event.refs?.submissionId === submissionDebug.submissionId), true);
 });
 
 test('agent step records failed submission before returning failure', async () => {

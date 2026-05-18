@@ -31,6 +31,40 @@ interface AgentSubmissionQueue {
   enqueue<T>(run: () => Promise<T>, token?: WorkflowExecutionContext['token']): Promise<T>;
 }
 
+interface SubmissionDebugArtifact {
+  schemaVersion: '1';
+  submissionId: string;
+  checkpoint: string;
+  runId: string;
+  workflowId: string;
+  workflowName: string;
+  stepId: string;
+  stepRunId: string;
+  definitionId: string;
+  stageId?: string;
+  taskId?: string;
+  title: string;
+  freshChat: boolean;
+  submitMode: 'worktree' | 'currentWorkspace';
+  queuedAt: string;
+  submittingAt?: string;
+  submittedAt?: string;
+  completedAt?: string;
+  queueWaitMs?: number;
+  promptSha256: string;
+  promptArtifact?: string;
+  submissionDebugArtifact: string;
+  expectedArtifact: string;
+  expectedArtifactAbsolute: string;
+  statusArtifact: string;
+  statusArtifactAbsolute: string;
+  correlationMarker: string;
+  commands: AgentCommandInvocationEvent[];
+  resultStatus?: string;
+  resultOutput?: string;
+  error?: string;
+}
+
 class SimpleCancellationTokenSource {
   private listeners: Array<() => void> = [];
   readonly token = {
@@ -83,9 +117,10 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
         error: `agent step ${step.id} requires an output artifact`
       };
     }
+    const outputSpec = step.output;
 
     const title = input?.title ? renderTemplate(input.title, context.variables) : step.name ?? step.id;
-    const outputPath = context.artifactStore.resolveArtifactPath(step.output.path, context.variables);
+    const outputPath = context.artifactStore.resolveArtifactPath(outputSpec.path, context.variables);
     const statusSpec: ArtifactSpec = {
       path: input?.statusArtifact ?? `status/${stepRun.stepRunId}.json`,
       format: 'json',
@@ -96,101 +131,189 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     stepRun.promptPreview = promptTemplate.value.slice(0, 200);
     stepRun.expectedArtifact = outputPath;
 
-    const traceStore = new TraceStore(context.run.runDir);
-    const traceRefs = this.buildTraceRefs(step, stepRun, title, outputPath, statusPath);
     const renderedUserPrompt = renderTemplate(promptTemplate.value, context.variables);
+    const submissionId = this.buildSubmissionId(context.run.id, stepRun.stepRunId, renderedUserPrompt);
+    const submissionDebugArtifact = this.buildSubmissionDebugArtifactPath(input, outputSpec.path);
+    const correlationMarker = this.buildCorrelationMarker(
+      context,
+      step,
+      stepRun,
+      title,
+      submissionId,
+      outputPath,
+      statusPath
+    );
+    const traceStore = new TraceStore(context.run.runDir);
+    const traceRefs = this.buildTraceRefs(step, stepRun, title, outputPath, statusPath, submissionId, submissionDebugArtifact);
     const plannerPromptRefs = this.persistPlannerPromptArtifacts(step, context, traceStore, renderedUserPrompt);
-    const prompt = this.buildPrompt(renderedUserPrompt, outputPath, statusPath, step.output.format);
+    const prompt = this.buildPrompt(renderedUserPrompt, outputPath, statusPath, outputSpec.format, correlationMarker);
+    const promptSha256 = sha256(prompt);
     const promptArtifactRefs = this.persistFinalPromptArtifact(input, context, traceStore, prompt);
+    const queuedAt = new Date().toISOString();
+    const submissionDebug: SubmissionDebugArtifact = {
+      schemaVersion: '1',
+      submissionId,
+      checkpoint: 'queued',
+      runId: context.run.id,
+      workflowId: context.run.workflowId,
+      workflowName: context.run.workflowName,
+      stepId: step.id,
+      stepRunId: stepRun.stepRunId,
+      definitionId: stepRun.definitionId,
+      ...(input?.stageId ? { stageId: input.stageId } : {}),
+      ...(input?.taskId ? { taskId: input.taskId } : {}),
+      title,
+      freshChat: input?.freshChat !== false,
+      submitMode: input?.submitMode ?? 'worktree',
+      queuedAt,
+      promptSha256,
+      ...(input?.promptArtifact ? { promptArtifact: input.promptArtifact } : {}),
+      submissionDebugArtifact,
+      expectedArtifact: outputSpec.path,
+      expectedArtifactAbsolute: outputPath,
+      statusArtifact: statusSpec.path,
+      statusArtifactAbsolute: statusPath,
+      correlationMarker,
+      commands: []
+    };
+    this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+    const queuedArtifacts = [
+      ...(promptArtifactRefs ?? []),
+      { path: submissionDebugArtifact, role: 'submissionDebug' }
+    ];
     this.appendSubmissionEvent(traceStore, 'queued', traceRefs, {
       freshChat: input?.freshChat !== false,
       submitMode: input?.submitMode ?? 'worktree',
-      ...(promptArtifactRefs ? { artifacts: promptArtifactRefs } : {})
+      artifacts: queuedArtifacts
     });
 
-    let submitResult: AgentSubmitResult;
     try {
-      submitResult = await this.submissionQueue.enqueue(
-        () => {
+      return await this.submissionQueue.enqueue(
+        async () => {
+          submissionDebug.submittingAt = new Date().toISOString();
+          submissionDebug.queueWaitMs = Date.parse(submissionDebug.submittingAt) - Date.parse(submissionDebug.queuedAt);
+          submissionDebug.checkpoint = 'submitting';
+          this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
           this.appendSubmissionEvent(traceStore, 'submitting', traceRefs);
-          return this.runner.submitPrompt(prompt, {
+          const submitResult = await this.runner.submitPrompt(prompt, {
             title,
+            correlationId: submissionId,
             freshChat: input?.freshChat !== false,
             submitMode: input?.submitMode ?? 'worktree',
-            onCommand: event => this.appendCommandEvent(traceStore, traceRefs, event)
+            onCommand: event => {
+              submissionDebug.commands.push(event);
+              submissionDebug.checkpoint = `command.${event.phase}`;
+              this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+              this.appendCommandEvent(traceStore, traceRefs, event);
+            }
           });
+
+          if (!submitResult.success) {
+            submissionDebug.completedAt = new Date().toISOString();
+            submissionDebug.resultStatus = 'failed';
+            submissionDebug.error = submitResult.error || 'Failed to submit agent prompt';
+            submissionDebug.resultOutput = submitResult.output;
+            submissionDebug.checkpoint = 'failed';
+            this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+            this.appendSubmissionEvent(traceStore, 'failed', traceRefs, {
+              error: submitResult.error || 'Failed to submit agent prompt'
+            });
+            return {
+              status: 'failed',
+              error: submitResult.error || 'Failed to submit agent prompt'
+            };
+          }
+
+          submissionDebug.submittedAt = new Date().toISOString();
+          submissionDebug.resultOutput = submitResult.output;
+          submissionDebug.checkpoint = 'submitted';
+          this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+          this.appendSubmissionEvent(traceStore, 'submitted', traceRefs);
+          if (plannerPromptRefs) {
+            traceStore.append('planner.promptSubmitted', plannerPromptRefs);
+          }
+          submissionDebug.checkpoint = 'waitingForArtifact';
+          this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+          this.appendSubmissionEvent(traceStore, 'waitingForArtifact', traceRefs, {
+            artifacts: [
+              { path: outputSpec.path, role: 'output' },
+              { path: statusSpec.path, role: 'status' }
+            ]
+          });
+          const waitResult = await this.waitForOutputOrStatus(outputSpec, statusSpec, context);
+          if (waitResult.status === 'cancelled') {
+            submissionDebug.completedAt = new Date().toISOString();
+            submissionDebug.resultStatus = 'cancelled';
+            submissionDebug.checkpoint = 'cancelled';
+            this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+            this.appendSubmissionEvent(traceStore, 'cancelled', traceRefs);
+            return { status: 'cancelled' };
+          }
+          if (waitResult.status === 'timeout') {
+            submissionDebug.completedAt = new Date().toISOString();
+            submissionDebug.resultStatus = 'timedOut';
+            submissionDebug.error = waitResult.error;
+            submissionDebug.checkpoint = 'artifactWaitTimedOut';
+            this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+            this.appendSubmissionEvent(traceStore, 'artifactWaitTimedOut', traceRefs, {
+              error: waitResult.error
+            });
+            return {
+              status: 'timedOut',
+              error: waitResult.error
+            };
+          }
+          if (waitResult.statusArtifact) {
+            const statusArtifact = waitResult.value as StepStatusArtifact;
+            submissionDebug.completedAt = new Date().toISOString();
+            submissionDebug.resultStatus = statusArtifact.status === 'blocked' ? 'blocked' : 'failed';
+            submissionDebug.error = statusArtifact.reason;
+            submissionDebug.checkpoint = 'statusArtifactFound';
+            this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+            this.appendSubmissionEvent(traceStore, 'statusArtifactFound', traceRefs, {
+              status: statusArtifact.status,
+              reason: statusArtifact.reason,
+              artifacts: [{ path: statusSpec.path, role: 'status' }]
+            });
+            return {
+              status: statusArtifact.status === 'blocked' ? 'blocked' : 'failed',
+              blockedReason: statusArtifact.status === 'blocked' ? statusArtifact.reason : undefined,
+              error: statusArtifact.status === 'failed' ? statusArtifact.reason : undefined,
+              outputArtifact: statusPath
+            };
+          }
+
+          submissionDebug.completedAt = new Date().toISOString();
+          submissionDebug.resultStatus = 'succeeded';
+          submissionDebug.checkpoint = 'artifactFound';
+          this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
+          this.appendSubmissionEvent(traceStore, 'artifactFound', traceRefs, {
+            artifacts: [{ path: outputSpec.path, role: 'output' }]
+          });
+          if (outputSpec.schema === MASTER_PLAN_SCHEMA_ID) {
+            traceStore.appendTyped(TRACE_EVENTS.PLAN_CREATED, {
+              artifacts: [{ path: outputSpec.path, role: 'masterPlan' }]
+            });
+          }
+          return {
+            status: 'succeeded',
+            outputArtifact: outputPath,
+            output: waitResult.value
+          };
         },
         context.token
       );
     } catch (error) {
+      submissionDebug.completedAt = new Date().toISOString();
+      submissionDebug.resultStatus = 'failed';
+      submissionDebug.error = error instanceof Error ? error.message : String(error);
+      submissionDebug.checkpoint = 'failed';
+      this.persistSubmissionDebug(context, submissionDebugArtifact, submissionDebug);
       this.appendSubmissionEvent(traceStore, 'failed', traceRefs, {
         error: error instanceof Error ? error.message : String(error)
       });
       throw error;
     }
-
-    if (!submitResult.success) {
-      this.appendSubmissionEvent(traceStore, 'failed', traceRefs, {
-        error: submitResult.error || 'Failed to submit agent prompt'
-      });
-      return {
-        status: 'failed',
-        error: submitResult.error || 'Failed to submit agent prompt'
-      };
-    }
-
-    this.appendSubmissionEvent(traceStore, 'submitted', traceRefs);
-    if (plannerPromptRefs) {
-      traceStore.append('planner.promptSubmitted', plannerPromptRefs);
-    }
-    this.appendSubmissionEvent(traceStore, 'waitingForArtifact', traceRefs, {
-      artifacts: [
-        { path: step.output.path, role: 'output' },
-        { path: statusSpec.path, role: 'status' }
-      ]
-    });
-    const waitResult = await this.waitForOutputOrStatus(step.output, statusSpec, context);
-    if (waitResult.status === 'cancelled') {
-      this.appendSubmissionEvent(traceStore, 'cancelled', traceRefs);
-      return { status: 'cancelled' };
-    }
-    if (waitResult.status === 'timeout') {
-      this.appendSubmissionEvent(traceStore, 'artifactWaitTimedOut', traceRefs, {
-        error: waitResult.error
-      });
-      return {
-        status: 'timedOut',
-        error: waitResult.error
-      };
-    }
-    if (waitResult.statusArtifact) {
-      const statusArtifact = waitResult.value as StepStatusArtifact;
-      this.appendSubmissionEvent(traceStore, 'statusArtifactFound', traceRefs, {
-        status: statusArtifact.status,
-        reason: statusArtifact.reason,
-        artifacts: [{ path: statusSpec.path, role: 'status' }]
-      });
-      return {
-        status: statusArtifact.status === 'blocked' ? 'blocked' : 'failed',
-        blockedReason: statusArtifact.status === 'blocked' ? statusArtifact.reason : undefined,
-        error: statusArtifact.status === 'failed' ? statusArtifact.reason : undefined,
-        outputArtifact: statusPath
-      };
-    }
-
-    this.appendSubmissionEvent(traceStore, 'artifactFound', traceRefs, {
-      artifacts: [{ path: step.output.path, role: 'output' }]
-    });
-    if (step.output.schema === MASTER_PLAN_SCHEMA_ID) {
-      traceStore.appendTyped(TRACE_EVENTS.PLAN_CREATED, {
-        artifacts: [{ path: step.output.path, role: 'masterPlan' }]
-      });
-    }
-    return {
-      status: 'succeeded',
-      outputArtifact: outputPath,
-      output: waitResult.value
-    };
   }
 
   private persistFinalPromptArtifact(
@@ -336,15 +459,19 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     stepRun: WorkflowStepRun,
     title: string,
     outputPath: string,
-    statusPath: string
+    statusPath: string,
+    submissionId: string,
+    submissionDebugArtifact: string
   ): Record<string, unknown> {
     return {
       stepId: step.id,
       stepRunId: stepRun.stepRunId,
       definitionId: stepRun.definitionId,
       title,
+      submissionId,
       expectedArtifact: outputPath,
-      statusArtifact: statusPath
+      statusArtifact: statusPath,
+      submissionDebugArtifact
     };
   }
 
@@ -371,8 +498,20 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       command: event.command,
       phase: event.phase,
       commandTimestamp: event.timestamp,
+      ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+      ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+      ...(event.argumentsSummary ? { argumentsSummary: event.argumentsSummary } : {}),
+      ...(event.resultSummary ? { resultSummary: event.resultSummary } : {}),
       ...(event.error ? { error: event.error } : {})
     });
+  }
+
+  private persistSubmissionDebug(
+    context: WorkflowExecutionContext,
+    submissionDebugArtifact: string,
+    value: SubmissionDebugArtifact
+  ): void {
+    context.artifactStore.writeText(submissionDebugArtifact, `${JSON.stringify(value, null, 2)}\n`, context.variables);
   }
 
   private persistPlannerPromptArtifacts(
@@ -448,9 +587,17 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
     return path.resolve(path.dirname(workflowFilePath), promptFile);
   }
 
-  private buildPrompt(userPrompt: string, outputPath: string, statusPath: string, outputFormat: ArtifactSpec['format']): string {
+  private buildPrompt(
+    userPrompt: string,
+    outputPath: string,
+    statusPath: string,
+    outputFormat: ArtifactSpec['format'],
+    correlationMarker: string
+  ): string {
     return [
       userPrompt,
+      '',
+      correlationMarker,
       '',
       'Workflow step output contract:',
       '',
@@ -470,6 +617,50 @@ export class AgentStepExecutor implements WorkflowStepExecutor {
       '',
       `The final output format must be ${outputFormat}.`,
       'Do not write partial JSON to the final output path. For JSON outputs, write valid JSON only.'
+    ].join('\n');
+  }
+
+  private buildSubmissionId(runId: string, stepRunId: string, renderedPrompt: string): string {
+    return [
+      this.safeSubmissionPart(runId),
+      this.safeSubmissionPart(stepRunId),
+      sha256(renderedPrompt).slice(0, 12)
+    ].join('.');
+  }
+
+  private safeSubmissionPart(value: string): string {
+    return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+  }
+
+  private buildSubmissionDebugArtifactPath(input: AgentStepInput | undefined, outputArtifact: string): string {
+    const siblingArtifact = input?.promptArtifact ?? outputArtifact;
+    const directory = path.posix.dirname(siblingArtifact.replace(/\\/g, '/'));
+    if (directory === '.') {
+      return 'submission-debug.json';
+    }
+    return path.posix.join(directory, 'submission-debug.json');
+  }
+
+  private buildCorrelationMarker(
+    context: WorkflowExecutionContext,
+    step: WorkflowStep,
+    stepRun: WorkflowStepRun,
+    title: string,
+    submissionId: string,
+    outputPath: string,
+    statusPath: string
+  ): string {
+    return [
+      'Workflow agent correlation:',
+      `- Submission ID: ${submissionId}`,
+      `- Run ID: ${context.run.id}`,
+      `- Workflow ID: ${context.run.workflowId}`,
+      `- Step ID: ${step.id}`,
+      `- Step Run ID: ${stepRun.stepRunId}`,
+      `- Title: ${title}`,
+      `- Expected output artifact: ${outputPath}`,
+      `- Status artifact: ${statusPath}`,
+      'Use this block to match the visible Cursor chat/Composer run back to the workflow trace.'
     ].join('\n');
   }
 }

@@ -18,6 +18,7 @@ export interface AgentExecutionResult {
 
 export interface AgentSubmitOptions {
   title?: string;
+  correlationId?: string;
   freshChat?: boolean;
   submitMode?: 'worktree' | 'currentWorkspace';
   onCommand?: (event: AgentCommandInvocationEvent) => void;
@@ -33,6 +34,10 @@ export interface AgentCommandInvocationEvent {
   command: string;
   phase: 'invoking' | 'succeeded' | 'failed';
   timestamp: string;
+  correlationId?: string;
+  durationMs?: number;
+  argumentsSummary?: string;
+  resultSummary?: string;
   error?: string;
 }
 
@@ -48,7 +53,8 @@ export class CursorAgentRunner {
         }
       }
 
-      console.log(`[CursorAgentRunner] Opening chat${options.title ? `: ${options.title}` : ''}`);
+      const correlationLabel = options.correlationId ? ` [${options.correlationId}]` : '';
+      console.log(`[CursorAgentRunner]${correlationLabel} Opening chat${options.title ? `: ${options.title}` : ''}`);
       await this.executeCommandWithTelemetry('workbench.action.chat.open', { query: prompt }, options);
       await this.wait(1000);
 
@@ -215,10 +221,13 @@ export class CursorAgentRunner {
     args: unknown,
     options: AgentSubmitOptions
   ): Promise<unknown> {
+    const startedAt = Date.now();
     this.emitCommandEvent(options, {
       command,
       phase: 'invoking',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+      ...(args === undefined ? {} : { argumentsSummary: this.summarizeValue(args) })
     });
     try {
       const result = args === undefined
@@ -227,7 +236,10 @@ export class CursorAgentRunner {
       this.emitCommandEvent(options, {
         command,
         phase: 'succeeded',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+        durationMs: Date.now() - startedAt,
+        ...(result === undefined ? {} : { resultSummary: this.summarizeValue(result) })
       });
       return result;
     } catch (error) {
@@ -235,6 +247,8 @@ export class CursorAgentRunner {
         command,
         phase: 'failed',
         timestamp: new Date().toISOString(),
+        ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+        durationMs: Date.now() - startedAt,
         error: error instanceof Error ? error.message : String(error)
       });
       throw error;
@@ -243,6 +257,36 @@ export class CursorAgentRunner {
 
   private emitCommandEvent(options: AgentSubmitOptions, event: AgentCommandInvocationEvent): void {
     options.onCommand?.(event);
+  }
+
+  private summarizeValue(value: unknown): string {
+    if (value === undefined) {
+      return 'undefined';
+    }
+    if (value === null) {
+      return 'null';
+    }
+    if (typeof value === 'string') {
+      return this.truncate(value);
+    }
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      return `array(length=${value.length})`;
+    }
+    if (typeof value === 'object') {
+      const keys = Object.keys(value as Record<string, unknown>).slice(0, 5);
+      return `object(keys=${keys.join(',')})`;
+    }
+    return typeof value;
+  }
+
+  private truncate(value: string, maxLength = 160): string {
+    if (value.length <= maxLength) {
+      return value;
+    }
+    return `${value.slice(0, maxLength - 3)}...`;
   }
 
   /**
