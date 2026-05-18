@@ -6,7 +6,8 @@ import {
   PLAN_RUN_SCHEMA_ID,
   TRACE_EVENT_SCHEMA_ID,
   TOOL_INVENTORY_SCHEMA_ID,
-  TOOL_USE_EVIDENCE_SCHEMA_ID
+  TOOL_USE_EVIDENCE_SCHEMA_ID,
+  WORKFLOW_PREFERENCES_SCHEMA_ID
 } from './planSchemas';
 import { createWorkflowSchemaRegistry } from './workflowSchemas';
 
@@ -52,8 +53,29 @@ test('registers built-in plan runtime schemas', () => {
   assert.equal(registry.has(AUDIT_SCHEMA_ID), true);
   assert.equal(registry.has(TOOL_INVENTORY_SCHEMA_ID), true);
   assert.equal(registry.has(TOOL_USE_EVIDENCE_SCHEMA_ID), true);
+  assert.equal(registry.has(WORKFLOW_PREFERENCES_SCHEMA_ID), true);
   assert.equal(registry.has(PLAN_RUN_SCHEMA_ID), true);
   assert.equal(registry.has(TRACE_EVENT_SCHEMA_ID), true);
+});
+
+test('validates workflow preferences artifact with built-in default source', () => {
+  const registry = createWorkflowSchemaRegistry();
+  const artifact = {
+    schemaVersion: '1',
+    preferences: [{
+      id: 'default-task-boundaries',
+      source: 'builtInDefault',
+      title: 'Default Task Boundaries',
+      summary: 'Split responsibilities into separate tasks.',
+      content: 'Prefer one role per task.',
+      contentSha256: 'abc123'
+    }]
+  };
+
+  const result = registry.validate(WORKFLOW_PREFERENCES_SCHEMA_ID, artifact);
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
 });
 
 test('validates a minimal master plan artifact', () => {

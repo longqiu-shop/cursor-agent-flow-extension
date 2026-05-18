@@ -7,7 +7,10 @@ import { ToolContextProvider } from './toolContextProvider';
 import { ToolInventoryStepExecutor } from './toolInventoryStepExecutor';
 import type { WorkflowExecutionContext } from './workflowRunner';
 
-function createContext(writes: Array<{ path: string; value: unknown }>): WorkflowExecutionContext {
+function createContext(
+  writes: Array<{ path: string; value: unknown }>,
+  reads: Record<string, unknown> = {}
+): WorkflowExecutionContext {
   const runDir = '/tmp/tool-inventory-run';
   return {
     workflow: {
@@ -31,7 +34,8 @@ function createContext(writes: Array<{ path: string; value: unknown }>): Workflo
       writeJson: (artifactPath: string, value: unknown) => {
         writes.push({ path: artifactPath, value });
         return path.join(runDir, artifactPath);
-      }
+      },
+      readJson: (artifactPath: string) => reads[artifactPath]
     } as ArtifactStore,
     variables: {},
     token: {
@@ -88,4 +92,38 @@ test('toolInventory executor rejects unsupported include source', async () => {
 
   assert.equal(result.status, 'failed');
   assert.match(result.error ?? '', /unsupported source/);
+});
+
+test('toolInventory executor can build workflow preference entries from a preference artifact', async () => {
+  const writes: Array<{ path: string; value: unknown }> = [];
+  const executor = new ToolInventoryStepExecutor(new ToolContextProvider({}));
+  const result = await executor.execute({
+    ...step,
+    input: {
+      include: ['workflowPreferences'],
+      workflowPreferencesArtifact: 'preferences/workflow-preferences.json'
+    }
+  }, {
+    stepRunId: 'inventory',
+    definitionId: 'inventory',
+    type: 'toolInventory',
+    status: 'running'
+  }, createContext(writes, {
+    'preferences/workflow-preferences.json': {
+      schemaVersion: '1',
+      preferences: [{
+        id: 'run-specific',
+        source: 'runOverride',
+        title: 'Run Specific',
+        summary: 'Run-specific planning guidance.',
+        content: 'Prefer the run-specific shape.',
+        contentSha256: 'abc123'
+      }]
+    }
+  }));
+
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual((writes[0].value as { tools: Array<{ id: string }> }).tools.map(tool => tool.id), [
+    'workflowPreferences.run-specific'
+  ]);
 });

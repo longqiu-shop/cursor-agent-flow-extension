@@ -9,10 +9,20 @@
   },
   "steps": [
     {
+      "id": "preferences",
+      "type": "workflowPreferences",
+      "output": {
+        "path": "preferences/workflow-preferences.json",
+        "format": "json",
+        "schema": "workflow-preferences@1"
+      }
+    },
+    {
       "id": "inventory",
       "type": "toolInventory",
       "input": {
-        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions", "mcpTools"]
+        "include": ["skills", "agents", "commands", "workflowPrimitives", "runtimeActions", "mcpTools", "workflowPreferences"],
+        "workflowPreferencesArtifact": "{{ steps.preferences.outputArtifact }}"
       },
       "output": {
         "path": "tool-inventory.json",

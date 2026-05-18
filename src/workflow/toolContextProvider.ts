@@ -10,8 +10,10 @@ import {
   PLAN_SCHEMA_VERSION,
   ToolInventory,
   ToolInventoryEntry,
-  ToolInventorySource
+  ToolInventorySource,
+  WorkflowPreferenceEntry
 } from './planSchemas';
+import { WorkflowPreferenceProvider } from './workflowPreferenceProvider';
 
 export interface ToolContextProviderSources {
   commands?: Command[];
@@ -19,6 +21,8 @@ export interface ToolContextProviderSources {
   agents?: Command[];
   mcpTools?: McpToolDescriptor[];
   mcpDescriptorDirectories?: string[];
+  workflowPreferences?: WorkflowPreferenceEntry[];
+  workflowPreferenceProvider?: WorkflowPreferenceProvider;
 }
 
 export interface ToolContextProviderRegistries {
@@ -26,10 +30,12 @@ export interface ToolContextProviderRegistries {
   skillRegistry: SkillRegistry;
   agentRegistry: AgentRegistry;
   mcpDescriptorDirectories?: string[];
+  workflowPreferenceProvider?: WorkflowPreferenceProvider;
 }
 
 export interface ToolInventoryOptions {
   include?: ToolInventorySource[];
+  workflowPreferences?: WorkflowPreferenceEntry[];
 }
 
 type ToolContextProviderSourceFactory = () => ToolContextProviderSources;
@@ -46,7 +52,8 @@ const DEFAULT_SOURCES: ToolInventorySource[] = [
   'agents',
   'workflowPrimitives',
   'runtimeActions',
-  'mcpTools'
+  'mcpTools',
+  'workflowPreferences'
 ];
 
 export class ToolContextProvider {
@@ -57,7 +64,8 @@ export class ToolContextProvider {
       commands: registries.commandRegistry.getAllCommands(),
       skills: registries.skillRegistry.getAll(),
       agents: registries.agentRegistry.getAll(),
-      mcpDescriptorDirectories: registries.mcpDescriptorDirectories ?? []
+      mcpDescriptorDirectories: registries.mcpDescriptorDirectories ?? [],
+      workflowPreferenceProvider: registries.workflowPreferenceProvider
     }));
   }
 
@@ -83,6 +91,14 @@ export class ToolContextProvider {
     }
     if (include.has('mcpTools')) {
       tools.push(...this.mcpTools(sources));
+    }
+    if (include.has('workflowPreferences')) {
+      tools.push(...this.workflowPreferenceTools(
+        options.workflowPreferences
+        ?? sources.workflowPreferences
+        ?? sources.workflowPreferenceProvider?.snapshot().preferences
+        ?? []
+      ));
     }
 
     return {
@@ -166,6 +182,18 @@ export class ToolContextProvider {
       description: descriptor.description
         ? `${descriptor.server}/${descriptor.name}: ${descriptor.description}`
         : `${descriptor.server}/${descriptor.name}`
+    }));
+  }
+
+  private workflowPreferenceTools(preferences: WorkflowPreferenceEntry[]): ToolInventoryEntry[] {
+    return preferences.map(preference => ({
+      id: `workflowPreferences.${this.safeToolId(preference.id)}`,
+      source: 'workflowPreferences',
+      capabilities: ['planning'],
+      description: `${preference.title}: ${preference.summary}`,
+      ...(preference.path ? { path: preference.path } : {}),
+      title: preference.title,
+      summary: preference.summary
     }));
   }
 
