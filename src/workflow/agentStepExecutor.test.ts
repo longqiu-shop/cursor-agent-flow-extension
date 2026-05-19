@@ -104,9 +104,11 @@ function createContext(runDir: string, waitResult: ArtifactWaitResult<unknown>):
 
 function createControlledWaitContext(runDir: string): {
   context: WorkflowExecutionContext;
+  resolveStarted: () => void;
   resolveOutput: (value?: unknown) => void;
   resolveStatus: (status?: 'blocked' | 'failed', reason?: string) => void;
 } {
+  const startedWait = deferred<ArtifactWaitResult<unknown>>();
   const outputWait = deferred<ArtifactWaitResult<unknown>>();
   const statusWait = deferred<ArtifactWaitResult<unknown>>();
   const artifactStore = {
@@ -118,6 +120,9 @@ function createControlledWaitContext(runDir: string): {
       return resolved;
     },
     waitForArtifact: async <T>(spec: ArtifactSpec): Promise<ArtifactWaitResult<T>> => {
+      if (spec.path.includes('.started')) {
+        return startedWait.promise as Promise<ArtifactWaitResult<T>>;
+      }
       if (spec.path.includes('status')) {
         return statusWait.promise as Promise<ArtifactWaitResult<T>>;
       }
@@ -158,22 +163,131 @@ function createControlledWaitContext(runDir: string): {
 
   return {
     context,
-    resolveOutput: (value: unknown = '# Done\n') => outputWait.resolve({
+    resolveStarted: () => startedWait.resolve({
       status: 'found',
-      artifactPath: path.join(runDir, 'output.md'),
-      value,
+      artifactPath: path.join(runDir, 'started.json'),
+      value: { status: 'started' },
       elapsedMs: 0
     }),
-    resolveStatus: (status: 'blocked' | 'failed' = 'blocked', reason = 'needs input') => statusWait.resolve({
-      status: 'found',
-      artifactPath: path.join(runDir, 'status.json'),
-      value: {
-        schemaVersion: '1',
-        status,
-        reason
-      },
-      elapsedMs: 0
-    })
+    resolveOutput: (value: unknown = '# Done\n') => {
+      startedWait.resolve({
+        status: 'found',
+        artifactPath: path.join(runDir, 'started.json'),
+        value: { status: 'started' },
+        elapsedMs: 0
+      });
+      outputWait.resolve({
+        status: 'found',
+        artifactPath: path.join(runDir, 'output.md'),
+        value,
+        elapsedMs: 0
+      });
+    },
+    resolveStatus: (status: 'blocked' | 'failed' = 'blocked', reason = 'needs input') => {
+      startedWait.resolve({
+        status: 'found',
+        artifactPath: path.join(runDir, 'started.json'),
+        value: { status: 'started' },
+        elapsedMs: 0
+      });
+      statusWait.resolve({
+        status: 'found',
+        artifactPath: path.join(runDir, 'status.json'),
+        value: {
+          schemaVersion: '1',
+          status,
+          reason
+        },
+        elapsedMs: 0
+      });
+    }
+  };
+}
+
+function createStartedMarkerRetryContext(
+  runDir: string,
+  startedStatuses: Array<'found' | 'timeout'>
+): {
+  context: WorkflowExecutionContext;
+  startedPaths: string[];
+  outputPaths: string[];
+} {
+  const startedPaths: string[] = [];
+  const outputPaths: string[] = [];
+  let startedIndex = 0;
+  const artifactStore = {
+    resolveArtifactPath: (artifactPath: string) => path.join(runDir, artifactPath),
+    writeText: (artifactPath: string, value: string) => {
+      const resolved = path.join(runDir, artifactPath);
+      fs.mkdirSync(path.dirname(resolved), { recursive: true });
+      fs.writeFileSync(resolved, value, 'utf-8');
+      return resolved;
+    },
+    waitForArtifact: async <T>(spec: ArtifactSpec): Promise<ArtifactWaitResult<T>> => {
+      if (spec.path.includes('.started')) {
+        startedPaths.push(spec.path);
+        const status = startedStatuses[startedIndex] ?? 'timeout';
+        startedIndex += 1;
+        if (status === 'found') {
+          return {
+            status: 'found',
+            artifactPath: path.join(runDir, spec.path),
+            value: { status: 'started' } as T,
+            elapsedMs: 0
+          };
+        }
+        return {
+          status: 'timeout',
+          artifactPath: path.join(runDir, spec.path),
+          elapsedMs: 0
+        };
+      }
+      if (spec.path.includes('status')) {
+        return new Promise<ArtifactWaitResult<T>>(() => undefined);
+      }
+      outputPaths.push(spec.path);
+      return {
+        status: 'found',
+        artifactPath: path.join(runDir, spec.path),
+        value: '# Done\n' as T,
+        elapsedMs: 0
+      };
+    }
+  } as unknown as ArtifactStore;
+
+  return {
+    context: {
+      workflow: {
+        id: 'agent-workflow',
+        name: 'Agent Workflow',
+        filePath: path.join(runDir, 'workflow.json'),
+        version: 1,
+        defaults: {
+          timeoutSeconds: 30
+        },
+        steps: []
+      } satisfies WorkflowDefinition,
+      run: {
+        id: 'run-unit',
+        workflowId: 'agent-workflow',
+        workflowName: 'Agent Workflow',
+        status: 'running',
+        runDir,
+        startedAt: '2026-05-16T00:00:00.000Z',
+        steps: []
+      } satisfies WorkflowRun,
+      artifactStore,
+      variables: {},
+      token: {
+        isCancellationRequested: false,
+        onCancellationRequested: () => ({ dispose: () => undefined })
+      } as WorkflowExecutionContext['token'],
+      executeChildStep: async () => {
+        throw new Error('not used');
+      }
+    },
+    startedPaths,
+    outputPaths
   };
 }
 
@@ -251,6 +365,8 @@ test('agent step persists submission lifecycle checkpoints and command telemetry
     'agentSubmission.command',
     'agentSubmission.command',
     'agentSubmission.submitted',
+    'agentSubmission.waitingForStartedMarker',
+    'agentSubmission.started',
     'agentSubmission.waitingForArtifact',
     'agentSubmission.artifactFound'
   ]);
@@ -260,7 +376,9 @@ test('agent step persists submission lifecycle checkpoints and command telemetry
   assert.equal(events[2].refs?.phase, 'invoking');
   assert.equal(events[2].refs?.commandTimestamp, '2026-05-16T00:00:01.000Z');
   assert.equal(events[6].refs?.checkpoint, 'submitted');
-  assert.equal(events[7].refs?.checkpoint, 'waitingForArtifact');
+  assert.equal(events[7].refs?.checkpoint, 'waitingForStartedMarker');
+  assert.equal(events[8].refs?.checkpoint, 'started');
+  assert.equal(events[9].refs?.checkpoint, 'waitingForArtifact');
   assert.deepEqual(events.map(event => event.id), [
     'event-1',
     'event-2',
@@ -270,7 +388,9 @@ test('agent step persists submission lifecycle checkpoints and command telemetry
     'event-6',
     'event-7',
     'event-8',
-    'event-9'
+    'event-9',
+    'event-10',
+    'event-11'
   ]);
 });
 
@@ -580,9 +700,87 @@ test('agent step records failed submission before returning failure', async () =
   assert.deepEqual(events.map(event => event.type), [
     'agentSubmission.queued',
     'agentSubmission.submitting',
+    'agentSubmission.submitFailed',
+    'agentSubmission.retrying',
+    'agentSubmission.submitting',
+    'agentSubmission.submitFailed',
     'agentSubmission.failed'
   ]);
-  assert.equal(events[2].refs?.error, 'composer command unavailable');
+  assert.equal(events[6].refs?.error, 'composer command unavailable');
+});
+
+test('agent step retries with attempt-scoped artifacts when started marker is missing', async () => {
+  const runDir = tempRunDir();
+  const context = createStartedMarkerRetryContext(runDir, ['timeout', 'found']);
+  const submissions: AgentSubmitOptions[] = [];
+  const runner = {
+    submitPrompt: async (_prompt: string, options?: AgentSubmitOptions): Promise<AgentSubmitResult> => {
+      submissions.push(options ?? {});
+      return {
+        success: true,
+        output: 'submitted'
+      };
+    }
+  };
+  const executor = new AgentStepExecutor(runner, {
+    enqueue: async <T>(run: () => Promise<T>): Promise<T> => run()
+  });
+
+  const result = await executor.execute(step, {
+    stepRunId: 'planner',
+    definitionId: 'planner',
+    type: 'agent',
+    status: 'running'
+  }, context.context);
+
+  const events = readEvents(runDir);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.outputArtifact, path.join(runDir, 'plan/master-plan.attempt-2.json'));
+  assert.deepEqual(submissions.map(options => options.attempt), [1, 2]);
+  assert.deepEqual(context.startedPaths, [
+    'plan/master-plan.started.json',
+    'plan/master-plan.started.attempt-2.json'
+  ]);
+  assert.deepEqual(context.outputPaths, ['plan/master-plan.attempt-2.json']);
+  assert.equal(events.some(event => event.type === 'agentSubmission.startedMarkerMissing'), true);
+  assert.equal(events.some(event => event.type === 'agentSubmission.retrying'), true);
+  assert.equal(events.some(event => event.type === 'agentSubmission.started' && event.refs?.attempt === 2), true);
+});
+
+test('agent step fails notStarted and releases queue when retry marker is missing', async () => {
+  const runDir = tempRunDir();
+  const context = createStartedMarkerRetryContext(runDir, ['timeout', 'timeout']);
+  const submissions: AgentSubmitOptions[] = [];
+  const runner = {
+    submitPrompt: async (_prompt: string, options?: AgentSubmitOptions): Promise<AgentSubmitResult> => {
+      submissions.push(options ?? {});
+      return {
+        success: true,
+        output: 'submitted'
+      };
+    }
+  };
+  const executor = new AgentStepExecutor(runner, {
+    enqueue: async <T>(run: () => Promise<T>): Promise<T> => run()
+  });
+
+  const result = await executor.execute(step, {
+    stepRunId: 'planner',
+    definitionId: 'planner',
+    type: 'agent',
+    status: 'running'
+  }, context.context);
+
+  const debug = JSON.parse(fs.readFileSync(path.join(runDir, 'plan/submission-debug.json'), 'utf-8')) as {
+    failureCategory?: string;
+    attempts?: Array<{ markerStatus?: string }>;
+  };
+  assert.equal(result.status, 'failed');
+  assert.match(result.error ?? '', /started marker/);
+  assert.deepEqual(submissions.map(options => options.attempt), [1, 2]);
+  assert.deepEqual(context.outputPaths, []);
+  assert.equal(debug.failureCategory, 'notStarted');
+  assert.deepEqual(debug.attempts?.map(attempt => attempt.markerStatus), ['timeout', 'timeout']);
 });
 
 test('planner step persists rendered prompt metadata and trace events', async () => {

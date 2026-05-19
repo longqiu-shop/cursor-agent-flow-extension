@@ -84,6 +84,9 @@ test('cursor agent runner waits for Composer readiness before submit command', (
     runnerSource,
     /workbench\.action\.chat\.open'[\s\S]*await this\.wait\(3000\);[\s\S]*composer\.triggerCreateWorktreeButton/
   );
+  assert.match(runnerSource, /executeSubmitCommandWithFallbacks/);
+  assert.match(runnerSource, /composer\.sendToAgent/);
+  assert.match(runnerSource, /composer\.resumeCurrentChat/);
 });
 
 test('workflow runs persist trigger metadata for reruns', () => {

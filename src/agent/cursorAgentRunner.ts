@@ -21,6 +21,7 @@ export interface AgentSubmitOptions {
   correlationId?: string;
   freshChat?: boolean;
   submitMode?: 'worktree' | 'currentWorkspace';
+  attempt?: number;
   onCommand?: (event: AgentCommandInvocationEvent) => void;
 }
 
@@ -35,6 +36,7 @@ export interface AgentCommandInvocationEvent {
   phase: 'invoking' | 'succeeded' | 'failed';
   timestamp: string;
   correlationId?: string;
+  attempt?: number;
   durationMs?: number;
   argumentsSummary?: string;
   resultSummary?: string;
@@ -43,39 +45,59 @@ export interface AgentCommandInvocationEvent {
 
 export class CursorAgentRunner {
   async submitPrompt(prompt: string, options: AgentSubmitOptions = {}): Promise<AgentSubmitResult> {
-    try {
-      if (options.freshChat) {
-        try {
-          await this.executeCommandWithTelemetry('composer.createNewComposerTab', undefined, options);
-          await this.wait(500);
-        } catch (error) {
-          console.warn('[CursorAgentRunner] Failed to create new composer tab:', error);
+    let lastError: string | undefined;
+    const maxAttempts = 2;
+    for (let commandAttempt = 1; commandAttempt <= maxAttempts; commandAttempt++) {
+      try {
+        await this.submitPromptOnce(prompt, options);
+        return {
+          success: true,
+          output: 'Prompt submit commands completed. Waiting for agent started marker.'
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        if (commandAttempt < maxAttempts) {
+          await this.wait(1000);
         }
       }
-
-      const correlationLabel = options.correlationId ? ` [${options.correlationId}]` : '';
-      console.log(`[CursorAgentRunner]${correlationLabel} Opening chat${options.title ? `: ${options.title}` : ''}`);
-      await this.executeCommandWithTelemetry('workbench.action.chat.open', { query: prompt }, options);
-      // Give Composer time to populate the query and enable the send action before triggering it.
-      await this.wait(3000);
-
-      if (options.submitMode === 'currentWorkspace') {
-        await this.executeCommandWithTelemetry('composer.sendToAgent', undefined, options);
-      } else {
-        await this.executeCommandWithTelemetry('composer.triggerCreateWorktreeButton', undefined, options);
-      }
-
-      return {
-        success: true,
-        output: 'Prompt submitted. Waiting for workflow artifact.'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        output: '',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
     }
+
+    return {
+      success: false,
+      output: '',
+      error: lastError || 'Unknown error'
+    };
+  }
+
+  private async submitPromptOnce(prompt: string, options: AgentSubmitOptions): Promise<void> {
+    if (options.freshChat) {
+      await this.executeCommandWithTelemetry('composer.createNewComposerTab', undefined, options);
+      await this.wait(500);
+    }
+
+    const correlationLabel = options.correlationId ? ` [${options.correlationId}]` : '';
+    console.log(`[CursorAgentRunner]${correlationLabel} Opening chat${options.title ? `: ${options.title}` : ''}`);
+    await this.executeCommandWithTelemetry('workbench.action.chat.open', { query: prompt }, options);
+    // Give Composer time to populate the query and enable the send action before triggering it.
+    await this.wait(3000);
+
+    await this.executeSubmitCommandWithFallbacks(options);
+  }
+
+  private async executeSubmitCommandWithFallbacks(options: AgentSubmitOptions): Promise<void> {
+    const commands = options.submitMode === 'currentWorkspace'
+      ? ['composer.sendToAgent', 'composer.resumeCurrentChat']
+      : ['composer.triggerCreateWorktreeButton', 'composer.sendToAgent', 'composer.resumeCurrentChat'];
+    const errors: string[] = [];
+    for (const command of commands) {
+      try {
+        await this.executeCommandWithTelemetry(command, undefined, options);
+        return;
+      } catch (error) {
+        errors.push(`${command}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    throw new Error(`All submit commands failed: ${errors.join('; ')}`);
   }
 
   /**
@@ -228,6 +250,7 @@ export class CursorAgentRunner {
       phase: 'invoking',
       timestamp: new Date().toISOString(),
       ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+      ...(options.attempt !== undefined ? { attempt: options.attempt } : {}),
       ...(args === undefined ? {} : { argumentsSummary: this.summarizeValue(args) })
     });
     try {
@@ -239,6 +262,7 @@ export class CursorAgentRunner {
         phase: 'succeeded',
         timestamp: new Date().toISOString(),
         ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+        ...(options.attempt !== undefined ? { attempt: options.attempt } : {}),
         durationMs: Date.now() - startedAt,
         ...(result === undefined ? {} : { resultSummary: this.summarizeValue(result) })
       });
@@ -249,6 +273,7 @@ export class CursorAgentRunner {
         phase: 'failed',
         timestamp: new Date().toISOString(),
         ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+        ...(options.attempt !== undefined ? { attempt: options.attempt } : {}),
         durationMs: Date.now() - startedAt,
         error: error instanceof Error ? error.message : String(error)
       });
