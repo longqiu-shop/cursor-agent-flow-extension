@@ -38,6 +38,11 @@ let treeView: ScheduleTreeView | undefined;
 let workflowRunnerFactory: WorkflowRunnerFactory | undefined;
 let agenticWorkflowService: AgenticWorkflowService | undefined;
 
+const AGENT_CHAT_TRIGGER_DEBOUNCE_MS = 200;
+const AGENT_CHAT_TRIGGER_SWEEP_MS = 5000;
+const AGENT_CHAT_TRIGGER_STABILITY_WAIT_MS = 250;
+const MAX_AGENT_CHAT_TRIGGER_STABILITY_RETRIES = 5;
+
 export function activate(context: vscode.ExtensionContext) {
   console.log('Cursor Agent Scheduler extension is now active');
 
@@ -111,6 +116,36 @@ export function activate(context: vscode.ExtensionContext) {
     });
   });
   const agentChatTriggerTimers = new Map<string, NodeJS.Timeout>();
+  const agentChatTriggerStabilityRetries = new Map<string, number>();
+  const waitForStableAgentChatRequest = async (filePath: string): Promise<boolean> => {
+    try {
+      const before = fs.statSync(filePath);
+      await new Promise(resolve => setTimeout(resolve, AGENT_CHAT_TRIGGER_STABILITY_WAIT_MS));
+      const after = fs.statSync(filePath);
+      return before.size === after.size && before.mtimeMs === after.mtimeMs;
+    } catch {
+      return false;
+    }
+  };
+  const processAgentChatTrigger = async (filePath: string) => {
+    const stable = await waitForStableAgentChatRequest(filePath);
+    if (!stable) {
+      const retryCount = agentChatTriggerStabilityRetries.get(filePath) ?? 0;
+      if (retryCount < MAX_AGENT_CHAT_TRIGGER_STABILITY_RETRIES) {
+        agentChatTriggerStabilityRetries.set(filePath, retryCount + 1);
+        queueAgentChatTrigger(vscode.Uri.file(filePath));
+        return;
+      }
+    }
+
+    agentChatTriggerStabilityRetries.delete(filePath);
+    const result = await agentChatTriggerService.processRequestFile(filePath);
+    if (result.status === 'started') {
+      vscode.window.showInformationMessage(`Started agentic workflow run ${result.runId} from ${result.requestId}`);
+    } else if (result.status === 'failed') {
+      vscode.window.showErrorMessage(`Agent chat trigger ${result.requestId} failed: ${result.error}`);
+    }
+  };
   const queueAgentChatTrigger = (uri: vscode.Uri) => {
     if (uri.fsPath.endsWith('.result.json')) {
       return;
@@ -123,19 +158,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     const timer = setTimeout(() => {
       agentChatTriggerTimers.delete(uri.fsPath);
-      agentChatTriggerService.processRequestFile(uri.fsPath)
-        .then(result => {
-          if (result.status === 'started') {
-            vscode.window.showInformationMessage(`Started agentic workflow run ${result.runId} from ${result.requestId}`);
-          } else if (result.status === 'failed') {
-            vscode.window.showErrorMessage(`Agent chat trigger ${result.requestId} failed: ${result.error}`);
-          }
-        })
+      processAgentChatTrigger(uri.fsPath)
         .catch(error => {
           const message = error instanceof Error ? error.message : String(error);
           vscode.window.showErrorMessage(`Failed to process agent chat trigger: ${message}`);
         });
-    }, 200);
+    }, AGENT_CHAT_TRIGGER_DEBOUNCE_MS);
     agentChatTriggerTimers.set(uri.fsPath, timer);
   };
 
@@ -147,6 +175,11 @@ export function activate(context: vscode.ExtensionContext) {
   globalAgentChatTriggerWatcher.onDidChange(queueAgentChatTrigger);
   listAgentChatRequestFiles(GLOBAL_AGENT_CHAT_REQUESTS_DIR)
     .forEach(filePath => queueAgentChatTrigger(vscode.Uri.file(filePath)));
+  const globalAgentChatTriggerSweep = setInterval(() => {
+    listAgentChatRequestFiles(GLOBAL_AGENT_CHAT_REQUESTS_DIR)
+      .filter(filePath => !fs.existsSync(filePath.replace(/\.json$/, '.result.json')))
+      .forEach(filePath => queueAgentChatTrigger(vscode.Uri.file(filePath)));
+  }, AGENT_CHAT_TRIGGER_SWEEP_MS);
 
   // Initialize scheduler
   schedulerService.initialize().catch(err => {
@@ -202,6 +235,7 @@ export function activate(context: vscode.ExtensionContext) {
           clearTimeout(timer);
         }
         agentChatTriggerTimers.clear();
+        clearInterval(globalAgentChatTriggerSweep);
       }
     }
   );
